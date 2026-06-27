@@ -1,0 +1,30 @@
+# Datenbank (enthält LLM-API-Keys)
+backend/*.db
+backend/*.db-journal
+backend/*.db-wal
+
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Umgebungsvariablen
+.env
+.env.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Service-Unit (enthält Username)
+newscompacter.service

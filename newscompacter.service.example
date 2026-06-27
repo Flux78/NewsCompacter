@@ -1,0 +1,14 @@
+[Unit]
+Description=NewsCompacter
+After=network.target
+
+[Service]
+Type=simple
+User=<your username>
+WorkingDirectory=/opt/newscompacter/backend
+ExecStart=/usr/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

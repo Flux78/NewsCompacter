@@ -1,0 +1,225 @@
+import json
+import logging
+from typing import List, Optional
+import httpx
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from models import LlmConfig, News, NewsTag, Settings
+
+logger = logging.getLogger(__name__)
+
+
+async def _get_config(db: AsyncSession) -> Optional[LlmConfig]:
+    result = await db.execute(select(LlmConfig))
+    return result.scalar_one_or_none()
+
+
+async def _get_language(db: AsyncSession) -> str:
+    settings = await db.get(Settings, 1)
+    return settings.language if settings and settings.language else "ORIG"
+
+
+def _lang_suffix(lang: str) -> str:
+    if lang == "DEU":
+        return " Antworte auf Deutsch."
+    if lang == "ENG":
+        return " Respond in English."
+    return ""
+
+
+async def _call_llm(db: AsyncSession, system_prompt: str, user_prompt: str, lang: str = "ORIG") -> Optional[str]:
+    config = await _get_config(db)
+    if not config or not config.api_key:
+        return None
+
+    suffix = _lang_suffix(lang)
+    if suffix:
+        system_prompt += suffix
+
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+    if config.provider == "openrouter":
+        headers["HTTP-Referer"] = "http://localhost:8000"
+
+    payload = {
+        "model": config.model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 1024,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            url = f"{config.base_url}/chat/completions"
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.warning("LLM call failed (model=%s, base=%s): %s", config.model, config.base_url, e)
+        return None
+
+
+async def generate_tags(db: AsyncSession, news: News, lang: str = "ORIG") -> List[str]:
+    prompt = (
+        f"Extrahiere 3-5 Schlagwörter (Tags) aus folgender Nachricht. "
+        f"Antworte NUR mit einem JSON-Array, z.B. [\"Tag1\", \"Tag2\", \"Tag3\"].\n\n"
+        f"Titel: {news.title}\nInhalt: {news.content}"
+    )
+    result = await _call_llm(db, "Du extrahierst Tags aus Nachrichten.", prompt, lang)
+    if not result:
+        return []
+
+    try:
+        tags = json.loads(result)
+        if isinstance(tags, list):
+            return [str(t).strip() for t in tags[:5]]
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return []
+
+
+async def generate_summary(db: AsyncSession, news: News, lang: str = "ORIG") -> Optional[str]:
+    prompt = (
+        f"Fasse die folgende Nachricht in 1-2 Sätzen zusammen.\n\n"
+        f"Titel: {news.title}\nInhalt: {news.content}"
+    )
+    return await _call_llm(db, "Du fasst Nachrichten kurz und prägnant zusammen.", prompt, lang)
+
+
+async def deduplicate_articles(db: AsyncSession, news_list: List[News]) -> List[List[News]]:
+    if len(news_list) < 2:
+        return [[n] for n in news_list]
+
+    titles = "\n".join(f"{i+1}. {n.title}" for i, n in enumerate(news_list))
+    prompt = (
+        f"Die folgenden Nachrichtentitel könnten Duplikate sein. "
+        f"Gruppiere sie, wenn sie vom gleichen Thema handeln. "
+        f"Antworte NUR mit einem JSON-Array von Arrays, z.B. [[1,3], [2,4,5]]. "
+        f"Jede Gruppe enthält die Nummern der zusammengehörigen Artikel.\n\n{titles}"
+    )
+    result = await _call_llm(db, "Du erkennst doppelte Nachrichten.", prompt)
+    if not result:
+        return [[n] for n in news_list]
+
+    try:
+        groups_raw = json.loads(result)
+        result_groups: List[List[News]] = []
+        seen: set[int] = set()
+        for grp in groups_raw:
+            if not grp:
+                continue
+            items = [news_list[i - 1] for i in grp if 1 <= i <= len(news_list)]
+            if items:
+                result_groups.append(items)
+                seen.update(i - 1 for i in grp)
+        for i, n in enumerate(news_list):
+            if i not in seen:
+                result_groups.append([n])
+        return result_groups
+    except (json.JSONDecodeError, TypeError, IndexError):
+        pass
+    return [[n] for n in news_list]
+
+
+async def enrich_news_with_llm(db: AsyncSession, news_list: List[News]) -> int:
+    config = await _get_config(db)
+    if not config:
+        logger.warning("enrich_news_with_llm: no LlmConfig row in DB")
+        return 0
+    if not config.api_key:
+        logger.warning("enrich_news_with_llm: api_key is empty (configure it on the LLM page)")
+        return 0
+
+    lang = await _get_language(db)
+    enriched = 0
+    logger.info("enrich_news_with_llm: starting enrichment for %d items", len(news_list))
+
+    all_new_tags: list[NewsTag] = []
+    for news_item in news_list:
+        tags = await generate_tags(db, news_item, lang)
+        if tags:
+            enriched += 1
+        for tag_name in tags:
+            all_new_tags.append(NewsTag(news_id=news_item.id, tag_name=tag_name))
+
+        if not news_item.summary:
+            summary = await generate_summary(db, news_item, lang)
+            if summary:
+                news_item.summary = summary
+
+    if all_new_tags:
+        existing_result = await db.execute(
+            select(NewsTag.news_id, NewsTag.tag_name).where(
+                NewsTag.news_id.in_({t.news_id for t in all_new_tags}),
+                NewsTag.tag_name.in_({t.tag_name for t in all_new_tags}),
+            )
+        )
+        existing_set = set(existing_result.fetchall())
+        for tag in all_new_tags:
+            if (tag.news_id, tag.tag_name) not in existing_set:
+                db.add(tag)
+
+    await db.commit()
+
+    news_ids = {n.id for n in news_list}
+    existing_result = await db.execute(
+        select(News)
+        .options(selectinload(News.tags))
+        .where(News.id.notin_(news_ids))
+        .where(News.is_saved == False)
+        .order_by(News.fetched_at.desc())
+        .limit(100)
+    )
+    existing = list(existing_result.scalars().all())
+
+    groups = await deduplicate_articles(db, news_list + existing)
+    deleted_ids: set[int] = set()
+    for group in groups:
+        if len(group) < 2:
+            continue
+        primary = group[0]
+        if primary.id in deleted_ids:
+            continue
+        for dup in group[1:]:
+            if dup.id in deleted_ids:
+                continue
+            primary.source = _merge_sources(primary.source or "", dup.source or "")
+            primary.source_url = _merge_urls(primary.source_url or "", dup.source_url or "")
+            if len(dup.content or "") > len(primary.content or ""):
+                primary.content = dup.content
+            if not primary.image_url and dup.image_url:
+                primary.image_url = dup.image_url
+            deleted_ids.add(dup.id)
+            await db.delete(dup)
+
+    if deleted_ids:
+        logger.info("deduplicate_articles: merged %d duplicate(s)", len(deleted_ids))
+        await db.commit()
+
+    return enriched
+
+
+def _merge_sources(current: str, new: str) -> str:
+    parts = [s.strip() for s in current.split("+")]
+    for s in new.split("+"):
+        s = s.strip()
+        if s and s not in parts:
+            parts.append(s)
+    return " + ".join(parts)
+
+
+def _merge_urls(current: str, new: str) -> str:
+    parts = [u.strip() for u in current.split(" | ")]
+    for u in new.split(" | "):
+        u = u.strip()
+        if u and u not in parts:
+            parts.append(u)
+    return " | ".join(parts)
