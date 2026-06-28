@@ -9,24 +9,48 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json()
 }
 
+function _toCamel(str: string): string {
+  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
+}
+
+function _toSnake(str: string): string {
+  return str.replace(/[A-Z]/g, (c) => '_' + c.toLowerCase())
+}
+
+function _transformKeys<T>(obj: unknown, keyTransform: (s: string) => string): T {
+  if (obj === null || obj === undefined) return obj as T
+  if (Array.isArray(obj)) return obj.map((v) => _transformKeys(v, keyTransform)) as any
+  if (typeof obj === 'object' && obj.constructor === Object) {
+    return Object.fromEntries(
+      Object.entries(obj as Record<string, unknown>).map(([k, v]) => [keyTransform(k), _transformKeys(v, keyTransform)])
+    ) as T
+  }
+  return obj as T
+}
+
+async function requestCamel<T>(path: string, options?: RequestInit): Promise<T> {
+  const data = await request<unknown>(path, options)
+  return _transformKeys<T>(data, _toCamel)
+}
+
 export interface Topic {
   id: number
   name: string
-  is_important: boolean
+  isImportant: boolean
 }
 
 export interface NewsItem {
   id: number
   title: string
   source: string
-  source_url: string
+  sourceUrl: string
   summary: string | null
   content: string | null
-  image_url: string | null
-  published_at: string | null
-  fetched_at: string
-  is_saved: boolean
-  topic_name: string | null
+  imageUrl: string | null
+  publishedAt: string | null
+  fetchedAt: string
+  isSaved: boolean
+  topicName: string | null
   tags: string[]
 }
 
@@ -34,67 +58,69 @@ export interface SourceItem {
   id: number
   name: string
   url: string
-  source_type: string
+  sourceType: string
   enabled: boolean
 }
 
 export interface TagPref {
-  tag_name: string
-  is_important: boolean
+  tagName: string
+  isImportant: boolean
 }
 
 export interface LlmConfig {
   provider: string
-  api_key: string
-  has_api_key: boolean
+  apiKey: string
+  hasApiKey: boolean
   model: string
-  base_url: string
+  baseUrl: string
 }
 
 export const api = {
   topics: {
-    list: () => request<Topic[]>('/topics'),
-    create: (name: string, is_important = true) =>
-      request<Topic>('/topics', { method: 'POST', body: JSON.stringify({ name, is_important }) }),
+    list: () => requestCamel<Topic[]>('/topics'),
+    create: (name: string, isImportant = true) =>
+      requestCamel<Topic>('/topics', { method: 'POST', body: JSON.stringify({ name, is_important: isImportant }) }),
     update: (id: number, data: { name?: string; is_important?: boolean }) =>
-      request<Topic>(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      requestCamel<Topic>(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request<{ ok: boolean }>(`/topics/${id}`, { method: 'DELETE' }),
   },
 
   news: {
     list: (topicId?: number) =>
-      request<NewsItem[]>(`/news${topicId ? `?topic_id=${topicId}` : ''}`),
+      requestCamel<NewsItem[]>(`/news${topicId ? `?topic_id=${topicId}` : ''}`),
     update: (id: number, data: { is_saved: boolean }) =>
-      request<NewsItem>(`/news/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+      requestCamel<NewsItem>(`/news/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
 
   tagPrefs: {
-    list: () => request<{ tag_name: string; is_important: boolean }[]>('/tag-prefs'),
-    set: (tag_name: string, is_important: boolean) =>
-      request<{ tag_name: string; is_important: boolean }>('/tag-prefs', {
+    list: () => requestCamel<TagPref[]>('/tag-prefs'),
+    set: (tagName: string, isImportant: boolean) =>
+      requestCamel<TagPref>('/tag-prefs', {
         method: 'PUT',
-        body: JSON.stringify({ tag_name, is_important }),
+        body: JSON.stringify({ tag_name: tagName, is_important: isImportant }),
       }),
-    delete: (tag_name: string) =>
-      request<{ ok: boolean }>(`/tag-prefs/${encodeURIComponent(tag_name)}`, { method: 'DELETE' }),
+    delete: (tagName: string) =>
+      request<{ ok: boolean }>(`/tag-prefs/${encodeURIComponent(tagName)}`, { method: 'DELETE' }),
   },
 
   llmConfig: {
-    get: () => request<LlmConfig | null>('/llm-config'),
-    update: (cfg: LlmConfig) =>
-      request<LlmConfig>('/llm-config', { method: 'PUT', body: JSON.stringify(cfg) }),
+    get: () => requestCamel<LlmConfig | null>('/llm-config'),
+    update: async (cfg: LlmConfig) => {
+      const raw = _transformKeys<Record<string, unknown>>(cfg, _toSnake)
+      return requestCamel<LlmConfig>('/llm-config', { method: 'PUT', body: JSON.stringify(raw) })
+    },
   },
 
   sources: {
-    list: () => request<SourceItem[]>('/sources'),
-    create: (name: string, url: string, source_type = 'rss') =>
-      request<SourceItem>('/sources', { method: 'POST', body: JSON.stringify({ name, url, source_type }) }),
+    list: () => requestCamel<SourceItem[]>('/sources'),
+    create: (name: string, url: string, sourceType = 'rss') =>
+      requestCamel<SourceItem>('/sources', { method: 'POST', body: JSON.stringify({ name, url, source_type: sourceType }) }),
     update: (id: number, data: { name?: string; url?: string; source_type?: string; enabled?: boolean }) =>
-      request<SourceItem>(`/sources/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      requestCamel<SourceItem>(`/sources/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request<{ ok: boolean }>(`/sources/${id}`, { method: 'DELETE' }),
-    suggest: () => request<{ suggestions: { name: string; url: string; source_type: string }[] }>('/sources/suggest'),
+    suggest: () => requestCamel<{ suggestions: { name: string; url: string; sourceType: string }[] }>('/sources/suggest'),
   },
 
   settings: {

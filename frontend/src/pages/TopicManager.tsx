@@ -1,18 +1,19 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { api, type Topic, type NewsItem, type TagPref } from '../services/api'
+import { useLoadOnMount } from '../useLoadOnMount'
+import Tag from '../components/Tag'
+import LoadingState from '../components/LoadingState'
 
-export default function TopicManager() {
+export default function TopicManager(): JSX.Element {
   const [topics, setTopics] = useState<Topic[]>([])
   const [tagPrefs, setTagPrefs] = useState<TagPref[]>([])
   const [allNews, setAllNews] = useState<NewsItem[]>([])
   const [newName, setNewName] = useState('')
-  const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
   const editRef = useRef<HTMLInputElement>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const { loading, reload } = useLoadOnMount(async () => {
     const [t, prefs, news] = await Promise.all([
       api.topics.list().catch(() => [] as Topic[]),
       api.tagPrefs.list().catch(() => [] as TagPref[]),
@@ -21,10 +22,7 @@ export default function TopicManager() {
     setTopics(t)
     setTagPrefs(prefs)
     setAllNews(news)
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { load() }, [load])
+  })
 
   useEffect(() => {
     if (editingId) editRef.current?.focus()
@@ -35,17 +33,17 @@ export default function TopicManager() {
     if (!name) return
     await api.topics.create(name)
     setNewName('')
-    await load()
+    await reload()
   }
 
   const handleToggle = async (topic: Topic) => {
-    await api.topics.update(topic.id, { is_important: !topic.is_important })
-    await load()
+    await api.topics.update(topic.id, { is_important: !topic.isImportant })
+    await reload()
   }
 
   const handleDelete = async (id: number) => {
     await api.topics.delete(id)
-    await load()
+    await reload()
   }
 
   const startEdit = (topic: Topic) => {
@@ -67,19 +65,19 @@ export default function TopicManager() {
       console.error('Topic rename failed', e)
     }
     setEditingId(null)
-    await load()
+    await reload()
   }
 
   const cancelEdit = () => setEditingId(null)
 
   const handlePrefToggle = async (tag: string, important: boolean) => {
     await api.tagPrefs.set(tag, important)
-    await load()
+    await reload()
   }
 
   const handlePrefDelete = async (tag: string) => {
     await api.tagPrefs.delete(tag)
-    await load()
+    await reload()
   }
 
   function tagsMatchingTopic(topicName: string): string[] {
@@ -93,7 +91,7 @@ export default function TopicManager() {
       }
     }
     for (const pref of tagPrefs) {
-      const tag = pref.tag_name
+      const tag = pref.tagName
       if (tag.toLowerCase().includes(lower) || lower.includes(tag.toLowerCase())) {
         matched.add(tag)
       }
@@ -102,21 +100,21 @@ export default function TopicManager() {
   }
 
   const sorted = [...topics].sort((a, b) => {
-    if (a.is_important !== b.is_important) return a.is_important ? -1 : 1
+    if (a.isImportant !== b.isImportant) return a.isImportant ? -1 : 1
     return a.name.localeCompare(b.name)
   })
 
   const sortedPrefs = [...tagPrefs].sort((a, b) => {
-    if (a.is_important !== b.is_important) return a.is_important ? -1 : 1
-    return a.tag_name.localeCompare(b.tag_name)
+    if (a.isImportant !== b.isImportant) return a.isImportant ? -1 : 1
+    return a.tagName.localeCompare(b.tagName)
   })
 
   if (loading) {
-    return <div className="container"><div className="empty-state"><span className="spinner" /></div></div>
+    return <div className="container"><LoadingState /></div>
   }
 
   return (
-    <div className="container" style={{ maxWidth: '700px' }}>
+    <div className="container container-narrow">
       <h2>Themengebiete</h2>
 
       <div className="topic-add">
@@ -141,7 +139,7 @@ export default function TopicManager() {
             return (
               <div key={topic.id}>
                 <div className="topic-row">
-                  <span className={`topic-dot ${topic.is_important ? 'dot-imp' : 'dot-unimp'}`} />
+                  <span className={`topic-dot ${topic.isImportant ? 'dot-imp' : 'dot-unimp'}`} />
                   {editingId === topic.id ? (
                     <input
                       ref={editRef}
@@ -160,7 +158,7 @@ export default function TopicManager() {
                     </span>
                   )}
                   <button className="btn btn-sm btn-outline" onClick={() => handleToggle(topic)}>
-                    {topic.is_important ? 'Unwichtig' : 'Interessant'}
+                    {topic.isImportant ? 'Unwichtig' : 'Interessant'}
                   </button>
                   <button className="btn btn-sm btn-outline topic-del" onClick={() => handleDelete(topic.id)} aria-label="Thema löschen">
                     ✕
@@ -169,23 +167,18 @@ export default function TopicManager() {
                 {matchingTags.length > 0 && (
                   <div className="topic-tags">
                     {matchingTags.map((tag) => {
-                      const pref = tagPrefs.find((p) => p.tag_name.toLowerCase() === tag.toLowerCase())
-                      const variant = pref ? (pref.is_important ? 'important' : 'unimportant') : 'default'
+                      const pref = tagPrefs.find((p) => p.tagName.toLowerCase() === tag.toLowerCase())
+                      const variant: 'important' | 'unimportant' | 'default' = pref ? (pref.isImportant ? 'important' : 'unimportant') : 'default'
                       return (
-                        <span key={tag} className={`topic-tag tag ${variant}`}>
-                          {tag}
-                          <button
-                            className={`topic-tag-btn${variant === 'important' ? ' topic-tag-btn-active-plus' : ''}`}
-                            onClick={() => handlePrefToggle(tag, true)}
-                            title="Als relevant"
-                          >+</button>
-                          <button
-                            className={`topic-tag-btn${variant === 'unimportant' ? ' topic-tag-btn-active-minus' : ''}`}
-                            onClick={() => handlePrefToggle(tag, false)}
-                            title="Als irrelevant"
-                          >−</button>
-                          <button className="topic-tag-btn" onClick={() => handlePrefDelete(tag)} title="Bewertung löschen">✕</button>
-                        </span>
+                        <Tag
+                          key={tag}
+                          className="topic-tag"
+                          name={tag}
+                          variant={variant}
+                          onImportant={() => handlePrefToggle(tag, true)}
+                          onUnimportant={() => handlePrefToggle(tag, false)}
+                          onDelete={() => handlePrefDelete(tag)}
+                        />
                       )
                     })}
                   </div>
@@ -203,20 +196,14 @@ export default function TopicManager() {
           </h3>
           <div className="topic-tag-list">
             {sortedPrefs.map((p) => (
-              <span key={p.tag_name} className={`tag ${p.is_important ? 'important' : 'unimportant'}`}>
-                {p.tag_name}
-                <button
-                  className={`topic-tag-btn${p.is_important ? ' topic-tag-btn-active-plus' : ''}`}
-                  onClick={() => handlePrefToggle(p.tag_name, true)}
-                  title="Als relevant"
-                >+</button>
-                <button
-                  className={`topic-tag-btn${!p.is_important ? ' topic-tag-btn-active-minus' : ''}`}
-                  onClick={() => handlePrefToggle(p.tag_name, false)}
-                  title="Als irrelevant"
-                >−</button>
-                <button className="topic-tag-btn" onClick={() => handlePrefDelete(p.tag_name)}>✕</button>
-              </span>
+              <Tag
+                key={p.tagName}
+                  name={p.tagName}
+                  variant={p.isImportant ? 'important' : 'unimportant'}
+                  onImportant={() => handlePrefToggle(p.tagName, true)}
+                  onUnimportant={() => handlePrefToggle(p.tagName, false)}
+                  onDelete={() => handlePrefDelete(p.tagName)}
+              />
             ))}
           </div>
         </>

@@ -28,3 +28,6 @@ Thumbs.db
 
 # Service-Unit (enthält Username)
 newscompacter.service
+
+# Plan/Notizen
+cleanup-plan.md

@@ -1,16 +1,20 @@
+import os
 import logging
+from typing import AsyncGenerator
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = "sqlite+aiosqlite:///./newscompacter.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./newscompacter.db")
+DB_TIMEOUT = 15
 
 engine = create_async_engine(
     DATABASE_URL, echo=False, poolclass=NullPool,
-    connect_args={"timeout": 15},
+    connect_args={"timeout": DB_TIMEOUT},
 )
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -19,7 +23,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_db():
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session() as session:
         try:
             yield session
@@ -36,7 +40,7 @@ async def _migrate():
         ]:
             try:
                 await conn.execute(text(stmt))
-            except Exception:
+            except OperationalError:
                 logger.debug("Column already exists, skipping migration: %s", stmt)
 
 

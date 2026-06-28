@@ -37,12 +37,12 @@ const MODELS: ModelOption[] = [
   return a.label.localeCompare(b.label)
 })
 
-interface Props {
+interface ModelSelectProps {
   value: string
   onChange: (value: string) => void
 }
 
-export default function ModelSelect({ value, onChange }: Props) {
+export default function ModelSelect({ value, onChange }: ModelSelectProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState(value)
   const [highlight, setHighlight] = useState(0)

@@ -1,13 +1,15 @@
-interface Props {
+interface TagProps {
   name: string
   variant?: 'default' | 'important' | 'unimportant'
   onImportant?: () => void
   onUnimportant?: () => void
+  onDelete?: () => void
+  className?: string
 }
 
-export default function Tag({ name, variant = 'default', onImportant, onUnimportant }: Props) {
+export default function Tag({ name, variant = 'default', onImportant, onUnimportant, onDelete, className }: TagProps) {
   return (
-    <span className="tag-group">
+    <span className={`tag-group${className ? ' ' + className : ''}`}>
       {onImportant && (
         <button
           className={`tag-btn tag-btn-plus${variant === 'important' ? ' active' : ''}`}
@@ -16,7 +18,7 @@ export default function Tag({ name, variant = 'default', onImportant, onUnimport
         >+</button>
       )}
       <span
-        className={`tag ${variant}`}
+        className="tag"
         onClick={variant !== 'important' ? onImportant : undefined}
         role="button"
         tabIndex={0}
@@ -35,6 +37,9 @@ export default function Tag({ name, variant = 'default', onImportant, onUnimport
           onClick={onUnimportant}
           title="Als irrelevant markieren"
         >−</button>
+      )}
+      {onDelete && (
+        <button className="tag-btn topic-tag-btn" onClick={onDelete} title="Bewertung löschen">✕</button>
       )}
     </span>
   )

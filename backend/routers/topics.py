@@ -13,7 +13,7 @@ DEFAULT_TOPICS = [
 ]
 
 
-async def ensure_default_topics(db: AsyncSession):
+async def _ensure_default_topics(db: AsyncSession):
     result = await db.execute(select(Topic).limit(1))
     if result.scalar_one_or_none():
         return

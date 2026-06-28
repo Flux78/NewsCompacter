@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 from pydantic import BaseModel, computed_field
 
 from database import get_db
@@ -25,10 +24,10 @@ class LlmConfigOut(BaseModel):
 
 
 class LlmConfigUpdate(BaseModel):
-    provider: Optional[str] = None
-    api_key: Optional[str] = None
-    model: Optional[str] = None
-    base_url: Optional[str] = None
+    provider: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    base_url: str | None = None
 
 
 DEFAULTS = {

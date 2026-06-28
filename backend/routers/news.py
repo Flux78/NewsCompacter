@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +53,6 @@ class SaveUpdate(BaseModel):
 async def update_news(news_id: int, body: SaveUpdate, db: AsyncSession = Depends(get_db)):
     item = await db.get(News, news_id)
     if not item:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="News not found")
     item.is_saved = body.is_saved
     await db.commit()
@@ -61,7 +60,7 @@ async def update_news(news_id: int, body: SaveUpdate, db: AsyncSession = Depends
 
 
 @router.get("/grouped")
-async def grouped_news(db: AsyncSession = Depends(get_db)):
+async def grouped_news(db: AsyncSession = Depends(get_db)) -> dict[str, list[dict]]:
     result = await db.execute(
         select(News)
         .options(selectinload(News.tags), selectinload(News.topic))

@@ -9,11 +9,19 @@ import httpx
 from sqlalchemy import select, delete, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import News, Topic
+from models import News, NewsSource, Topic
+from services.utils import merge_sources, merge_urls, get_http_client
 
 logger = logging.getLogger(__name__)
 
 RETENTION_DAYS = 8
+FETCH_TIMEOUT = 15
+FETCH_ARTICLE_TIMEOUT = 10
+MAX_ARTICLE_LENGTH = 2000
+MAX_RSS_ENTRIES = 20
+MAX_GOOGLE_NEWS_ENTRIES = 10
+USER_AGENT = "Mozilla/5.0"
+MIN_CONTENT_LENGTH = 80
 GOOGLE_NEWS_RSS = "https://news.google.com/rss/search?q={query}&hl=de&gl=DE&ceid=DE:de"
 
 _IMG_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
@@ -45,10 +53,10 @@ def _clean_article(article: dict) -> dict:
 
 async def fetch_article_text(url: str) -> str | None:
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-            resp.raise_for_status()
-    except Exception as e:
+        client = get_http_client()
+        resp = await client.get(url, timeout=FETCH_ARTICLE_TIMEOUT, headers={"User-Agent": USER_AGENT})
+        resp.raise_for_status()
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
         logger.warning("fetch_article_text(%s) failed: %s", url, e)
         return None
     html = resp.text
@@ -64,7 +72,7 @@ async def fetch_article_text(url: str) -> str | None:
         else:
             text = _strip_html(html)
     lines = [l.strip() for l in text.split("\n") if len(l.strip()) > 30]
-    return " ".join(lines)[:2000] if lines else None
+    return " ".join(lines)[:MAX_ARTICLE_LENGTH] if lines else None
 
 
 def _parse_published(entry) -> datetime.datetime | None:
@@ -76,19 +84,19 @@ def _parse_published(entry) -> datetime.datetime | None:
 
 async def fetch_rss(url: str, source_name: str) -> List[dict]:
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-    except Exception as e:
+        client = get_http_client()
+        resp = await client.get(url, timeout=FETCH_TIMEOUT)
+        resp.raise_for_status()
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
         logger.warning("fetch_rss(%s) failed: %s", url, e)
         return []
 
     feed = feedparser.parse(resp.text)
     articles = []
-    for entry in feed.entries[:20]:
+    for entry in feed.entries[:MAX_RSS_ENTRIES]:
         content = entry.get("summary", entry.get("description", ""))
         url = entry.get("link", "")
-        if len(_strip_html(content).strip()) < 80 and url:
+        if len(_strip_html(content).strip()) < MIN_CONTENT_LENGTH and url:
             fetched = await fetch_article_text(url)
             if fetched:
                 content = fetched
@@ -105,16 +113,17 @@ async def fetch_rss(url: str, source_name: str) -> List[dict]:
 async def fetch_google_news(query: str) -> List[dict]:
     url = GOOGLE_NEWS_RSS.format(query=query)
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-    except Exception as e:
+        client = get_http_client()
+        resp = await client.get(url, timeout=FETCH_TIMEOUT)
+        resp.raise_for_status()
+    except (httpx.HTTPError, httpx.TimeoutException) as e:
         logger.warning("fetch_google_news(%s) failed: %s", query, e)
         return []
 
     feed = feedparser.parse(resp.text)
     articles = []
-    for entry in feed.entries[:10]:
+
+    for entry in feed.entries[:MAX_GOOGLE_NEWS_ENTRIES]:
         articles.append(_clean_article({
             "title": entry.get("title", ""),
             "source": "Google News",
@@ -130,23 +139,7 @@ def _fingerprint(article: dict) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _merge_source(current: str, new_source: str) -> str:
-    parts = [s.strip() for s in current.split("+")]
-    if new_source not in parts:
-        parts.append(new_source)
-    return " + ".join(parts)
-
-
-def _merge_url(current: str | None, new_url: str) -> str:
-    current = current or ""
-    parts = [u.strip() for u in current.split(" | ")]
-    if new_url not in parts:
-        parts.append(new_url)
-    return " | ".join(parts)
-
-
 async def fetch_all_news(db: AsyncSession, sources: list[dict] | None = None) -> List[News]:
-    from models import NewsSource
 
     all_articles = []
 
@@ -154,10 +147,7 @@ async def fetch_all_news(db: AsyncSession, sources: list[dict] | None = None) ->
         result = await db.execute(
             select(NewsSource).where(NewsSource.enabled == True)
         )
-        sources = [
-            {"id": s.id, "name": s.name, "url": s.url, "source_type": s.source_type}
-            for s in result.scalars().all()
-        ]
+        sources = [s.to_dict() for s in result.scalars().all()]
 
     for src in sources:
         if src["source_type"] == "rss":
@@ -192,8 +182,8 @@ async def fetch_all_news(db: AsyncSession, sources: list[dict] | None = None) ->
         existing = existing_map.get(fp)
         if existing:
             old_source = existing.source
-            existing.source = _merge_source(existing.source, article["source"])
-            existing.source_url = _merge_url(existing.source_url, article["source_url"])
+            existing.source = merge_sources(existing.source, article["source"])
+            existing.source_url = merge_urls(existing.source_url or "", article["source_url"])
             if len(article.get("content", "")) > len(existing.content or ""):
                 existing.content = article["content"]
             if not existing.image_url and article.get("image_url"):

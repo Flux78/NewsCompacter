@@ -66,6 +66,14 @@ class NewsSource(Base):
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime, default=_utcnow)
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "url": self.url,
+            "source_type": self.source_type,
+        }
+
 
 class TagPreference(Base):
     __tablename__ = "tag_preferences"

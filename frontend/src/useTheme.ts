@@ -9,7 +9,7 @@ function getInitialTheme(): 'light' | 'dark' {
   return 'light'
 }
 
-export function useTheme() {
+export function useTheme(): { theme: 'light' | 'dark'; toggle: () => void } {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme)
 
   useEffect(() => {

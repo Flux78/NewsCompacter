@@ -4,22 +4,22 @@ import SourceLink from './SourceLink'
 import Tag from './Tag'
 
 const TRUNCATE_LENGTH = 200
+const LOCALE = 'de-DE'
 
 function highlightText(text: string, keywords: string[]): ReactNode {
   if (!keywords.length || !text) return text
   const escaped = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   const pattern = new RegExp(`(${escaped.join('|')})`, 'gi')
   const parts = text.split(pattern)
-  const lowerKeywords = keywords.map((k) => k.toLowerCase())
   return parts.map((part, i) => {
-    if (part && lowerKeywords.includes(part.toLowerCase())) {
+    if (part && pattern.test(part)) {
       return <mark key={i}>{part}</mark>
     }
     return part
   })
 }
 
-interface Props {
+interface NewsCardProps {
   item: NewsItem
   keywordFilter?: string
   onTagImportant?: (tag: string) => void
@@ -29,32 +29,41 @@ interface Props {
   onSaveToggle?: (id: number, saved: boolean) => void
 }
 
-export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUnimportant, importantTags, unimportantTags, onSaveToggle }: Props) {
+export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUnimportant, importantTags, unimportantTags, onSaveToggle }: NewsCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [showImg, setShowImg] = useState(false)
-  const [saved, setSaved] = useState(item.is_saved)
+  const [saved, setSaved] = useState(item.isSaved)
 
   useEffect(() => {
-    setSaved(item.is_saved)
-  }, [item.is_saved])
+    setSaved(item.isSaved)
+  }, [item.isSaved])
 
   const highlightKeywords = useMemo(
     () => (keywordFilter ? keywordFilter.split(/[,\s]+/).filter(Boolean) : []),
     [keywordFilter],
   )
 
+  const sourceLinks = useMemo(() => {
+    const urls = item.sourceUrl.split(' | ')
+    const names = item.source.split(' + ')
+    return urls.map((url, i) => {
+      const name = names[i]?.trim()
+      return name ? { url: url.trim(), source: name } : null
+    }).filter(Boolean) as { url: string; source: string }[]
+  }, [item.sourceUrl, item.source])
+
   return (
     <div className={`card${saved ? ' card-saved' : ''}`}>
       <div className="news-header">
         <h3
           className="news-title-img"
-          onMouseEnter={() => item.image_url && setShowImg(true)}
+          onMouseEnter={() => item.imageUrl && setShowImg(true)}
           onMouseLeave={() => setShowImg(false)}
         >
           {highlightText(item.title, highlightKeywords)}
-          {showImg && item.image_url && (
+          {showImg && item.imageUrl && (
             <span className="news-img-popup">
-              <img src={item.image_url} alt="" loading="lazy" />
+              <img src={item.imageUrl} alt="" loading="lazy" />
             </span>
           )}
         </h3>
@@ -85,10 +94,9 @@ export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUni
           {expanded ? 'Weniger' : 'Mehr'}
         </button>
 
-        {item.source_url.split(' | ').map((url, i) => {
-          const sources = item.source.split(' + ')
-          return <SourceLink key={i} source={sources[i]?.trim() || sources[0]} url={url.trim()} />
-        })}
+        {sourceLinks.map((link) => (
+          <SourceLink key={link.url} source={link.source} url={link.url} />
+        ))}
 
         {item.tags.map((tag) => {
           const lower = tag.toLowerCase()
@@ -107,7 +115,7 @@ export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUni
         })}
 
         <span className="news-time">
-          {new Date(item.fetched_at).toLocaleDateString('de-DE', {
+          {new Date(item.fetchedAt).toLocaleDateString(LOCALE, {
             day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
           })}
         </span>

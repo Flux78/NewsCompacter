@@ -1,24 +1,30 @@
 import json
 import logging
-from typing import List, Optional
+from typing import List
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from models import LlmConfig, News, NewsTag, Settings
+from models import LlmConfig, News, NewsTag
+from services.utils import merge_sources, merge_urls, get_settings
 
 logger = logging.getLogger(__name__)
 
+LLM_TEMPERATURE = 0.3
+LLM_MAX_TOKENS = 1024
+LLM_TIMEOUT = 60
+MAX_TAGS_PER_ARTICLE = 5
+DEDUP_LIMIT = 100
 
-async def _get_config(db: AsyncSession) -> Optional[LlmConfig]:
+async def _get_config(db: AsyncSession) -> LlmConfig | None:
     result = await db.execute(select(LlmConfig))
     return result.scalar_one_or_none()
 
 
 async def _get_language(db: AsyncSession) -> str:
-    settings = await db.get(Settings, 1)
-    return settings.language if settings and settings.language else "ORIG"
+    settings = await get_settings(db)
+    return settings.language or "ORIG"
 
 
 def _lang_suffix(lang: str) -> str:
@@ -29,7 +35,7 @@ def _lang_suffix(lang: str) -> str:
     return ""
 
 
-async def _call_llm(db: AsyncSession, system_prompt: str, user_prompt: str, lang: str = "ORIG") -> Optional[str]:
+async def _call_llm(db: AsyncSession, system_prompt: str = "", user_prompt: str = "", lang: str = "ORIG") -> str | None:
     config = await _get_config(db)
     if not config or not config.api_key:
         return None
@@ -45,53 +51,54 @@ async def _call_llm(db: AsyncSession, system_prompt: str, user_prompt: str, lang
     if config.provider == "openrouter":
         headers["HTTP-Referer"] = "http://localhost:8000"
 
+    messages = [{"role": "user", "content": user_prompt}]
+    if system_prompt:
+        messages.insert(0, {"role": "system", "content": system_prompt})
+
     payload = {
         "model": config.model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0.3,
-        "max_tokens": 1024,
+        "messages": messages,
+        "temperature": LLM_TEMPERATURE,
+        "max_tokens": LLM_MAX_TOKENS,
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            url = f"{config.base_url}/chat/completions"
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-    except Exception as e:
+        client = get_http_client()
+        url = f"{config.base_url}/chat/completions"
+        resp = await client.post(url, timeout=LLM_TIMEOUT, headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
+    except (httpx.HTTPError, httpx.TimeoutException, KeyError, json.JSONDecodeError) as e:
         logger.warning("LLM call failed (model=%s, base=%s): %s", config.model, config.base_url, e)
         return None
 
 
 async def generate_tags(db: AsyncSession, news: News, lang: str = "ORIG") -> List[str]:
     prompt = (
-        f"Extrahiere 3-5 Schlagwörter (Tags) aus folgender Nachricht. "
-        f"Antworte NUR mit einem JSON-Array, z.B. [\"Tag1\", \"Tag2\", \"Tag3\"].\n\n"
-        f"Titel: {news.title}\nInhalt: {news.content}"
+        f"Extract 3-5 keywords (tags) from the following news article. "
+        f"Respond ONLY with a JSON array, e.g. [\"Tag1\", \"Tag2\", \"Tag3\"].\n\n"
+        f"Title: {news.title}\nContent: {news.content}"
     )
-    result = await _call_llm(db, "Du extrahierst Tags aus Nachrichten.", prompt, lang)
+    result = await _call_llm(db, "You extract keywords (tags) from news articles.", prompt, lang)
     if not result:
         return []
 
     try:
         tags = json.loads(result)
         if isinstance(tags, list):
-            return [str(t).strip() for t in tags[:5]]
+            return [str(t).strip() for t in tags[:MAX_TAGS_PER_ARTICLE]]
     except (json.JSONDecodeError, TypeError):
         pass
     return []
 
 
-async def generate_summary(db: AsyncSession, news: News, lang: str = "ORIG") -> Optional[str]:
+async def generate_summary(db: AsyncSession, news: News, lang: str = "ORIG") -> str | None:
     prompt = (
-        f"Fasse die folgende Nachricht in 1-2 Sätzen zusammen.\n\n"
-        f"Titel: {news.title}\nInhalt: {news.content}"
+        f"Summarize the following news article in 1-2 sentences.\n\n"
+        f"Title: {news.title}\nContent: {news.content}"
     )
-    return await _call_llm(db, "Du fasst Nachrichten kurz und prägnant zusammen.", prompt, lang)
+    return await _call_llm(db, "You summarize news articles concisely.", prompt, lang)
 
 
 async def deduplicate_articles(db: AsyncSession, news_list: List[News]) -> List[List[News]]:
@@ -100,12 +107,12 @@ async def deduplicate_articles(db: AsyncSession, news_list: List[News]) -> List[
 
     titles = "\n".join(f"{i+1}. {n.title}" for i, n in enumerate(news_list))
     prompt = (
-        f"Die folgenden Nachrichtentitel könnten Duplikate sein. "
-        f"Gruppiere sie, wenn sie vom gleichen Thema handeln. "
-        f"Antworte NUR mit einem JSON-Array von Arrays, z.B. [[1,3], [2,4,5]]. "
-        f"Jede Gruppe enthält die Nummern der zusammengehörigen Artikel.\n\n{titles}"
+        f"The following news headlines may be duplicates. "
+        f"Group them if they cover the same topic. "
+        f"Respond ONLY with a JSON array of arrays, e.g. [[1,3], [2,4,5]]. "
+        f"Each group contains the numbers of related articles.\n\n{titles}"
     )
-    result = await _call_llm(db, "Du erkennst doppelte Nachrichten.", prompt)
+    result = await _call_llm(db, "You identify duplicate news articles.", prompt)
     if not result:
         return [[n] for n in news_list]
 
@@ -176,7 +183,7 @@ async def enrich_news_with_llm(db: AsyncSession, news_list: List[News]) -> int:
         .where(News.id.notin_(news_ids))
         .where(News.is_saved == False)
         .order_by(News.fetched_at.desc())
-        .limit(100)
+        .limit(DEDUP_LIMIT)
     )
     existing = list(existing_result.scalars().all())
 
@@ -191,8 +198,8 @@ async def enrich_news_with_llm(db: AsyncSession, news_list: List[News]) -> int:
         for dup in group[1:]:
             if dup.id in deleted_ids:
                 continue
-            primary.source = _merge_sources(primary.source or "", dup.source or "")
-            primary.source_url = _merge_urls(primary.source_url or "", dup.source_url or "")
+            primary.source = merge_sources(primary.source or "", dup.source or "")
+            primary.source_url = merge_urls(primary.source_url or "", dup.source_url or "")
             if len(dup.content or "") > len(primary.content or ""):
                 primary.content = dup.content
             if not primary.image_url and dup.image_url:
@@ -207,19 +214,7 @@ async def enrich_news_with_llm(db: AsyncSession, news_list: List[News]) -> int:
     return enriched
 
 
-def _merge_sources(current: str, new: str) -> str:
-    parts = [s.strip() for s in current.split("+")]
-    for s in new.split("+"):
-        s = s.strip()
-        if s and s not in parts:
-            parts.append(s)
-    return " + ".join(parts)
 
 
-def _merge_urls(current: str, new: str) -> str:
-    parts = [u.strip() for u in current.split(" | ")]
-    for u in new.split(" | "):
-        u = u.strip()
-        if u and u not in parts:
-            parts.append(u)
-    return " | ".join(parts)
+
+

@@ -7,8 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from services.news_fetcher import fetch_all_news, cleanup_old_news
 from services.llm_service import enrich_news_with_llm
-from services.scheduler import update_interval, get_session_factory
-from models import NewsSource, NewsTag, Settings
+from services.scheduler import update_interval
+from services.utils import get_settings
+from models import News, NewsSource, NewsTag
 import status
 
 logger = logging.getLogger(__name__)
@@ -22,11 +23,8 @@ class IntervalUpdate(BaseModel):
 @router.post("/now")
 async def fetch_now(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(NewsSource).where(NewsSource.enabled == True))
-    sources = [
-        {"id": s.id, "name": s.name, "url": s.url, "source_type": s.source_type}
-        for s in result.scalars().all()
-    ]
-    status.fetching = True
+    sources = [s.to_dict() for s in result.scalars().all()]
+    await status.set_fetching(True)
     try:
         news = await fetch_all_news(db, sources=sources)
         await cleanup_old_news(db)
@@ -35,32 +33,32 @@ async def fetch_now(db: AsyncSession = Depends(get_db)):
         logger.error("Fetch failed: %s", e)
         return {"fetched": 0, "enriched": 0}
     finally:
-        status.fetching = False
+        await status.set_fetching(False)
 
     enriched = 0
     if news:
-        status.enriching = True
+        await status.set_enriching(True)
         try:
             enriched = await enrich_news_with_llm(db, news)
         except Exception as e:
             logger.error("Enrichment failed: %s", e)
         finally:
-            status.enriching = False
+            await status.set_enriching(False)
 
     return {"fetched": fetched, "enriched": enriched}
 
 
 @router.post("/enrich")
 async def enrich_untagged(db: AsyncSession = Depends(get_db)):
-    from models import News as NewsModel
+    
     subq = select(NewsTag.news_id).subquery()
     result = await db.execute(
-        select(NewsModel).where(NewsModel.id.not_in(select(subq.c.news_id)))
+        select(News).where(News.id.not_in(subq))
     )
     untagged = result.scalars().all()
     if not untagged:
         return {"enriched": 0}
-    status.enriching = True
+    await status.set_enriching(True)
     try:
         enriched = await enrich_news_with_llm(db, untagged)
         return {"enriched": enriched}
@@ -68,13 +66,13 @@ async def enrich_untagged(db: AsyncSession = Depends(get_db)):
         logger.error("Enrichment failed: %s", e)
         return {"enriched": 0}
     finally:
-        status.enriching = False
+        await status.set_enriching(False)
 
 
 @router.get("/interval")
 async def get_interval(db: AsyncSession = Depends(get_db)):
-    config = await db.get(Settings, 1)
-    return {"minutes": config.fetch_interval_minutes if config else None}
+    config = await get_settings(db)
+    return {"minutes": config.fetch_interval_minutes}
 
 
 @router.get("/enrich-status")
@@ -83,7 +81,6 @@ async def enrich_status():
 
 
 @router.post("/interval")
-async def set_interval(body: IntervalUpdate):
-    session_factory = get_session_factory()
-    await update_interval(session_factory, body.minutes)
+async def set_interval(body: IntervalUpdate, db: AsyncSession = Depends(get_db)):
+    await update_interval(db, body.minutes)
     return {"minutes": body.minutes}

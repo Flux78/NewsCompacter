@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
-from httpx import AsyncClient
+from services.llm_service import _call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class SourceUpdate(BaseModel):
     enabled: bool | None = None
 
 
-async def ensure_default_sources(db: AsyncSession):
+async def _ensure_default_sources(db: AsyncSession):
     result = await db.execute(select(NewsSource).limit(1))
     if result.scalar_one_or_none():
         return
@@ -74,7 +74,7 @@ async def ensure_default_sources(db: AsyncSession):
 
 @router.get("", response_model=list[SourceResponse])
 async def list_sources(db: AsyncSession = Depends(get_db)):
-    await ensure_default_sources(db)
+    await _ensure_default_sources(db)
     result = await db.execute(select(NewsSource).order_by(NewsSource.name))
     return result.scalars().all()
 
@@ -135,22 +135,13 @@ async def suggest_sources(db: AsyncSession = Depends(get_db)):
     )
 
     try:
-        async with AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                llm.base_url.rstrip("/") + "/v1/chat/completions",
-                headers={"Authorization": f"Bearer {llm.api_key}"},
-                json={
-                    "model": llm.model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                },
-            )
-            body = resp.json()
-            content = body["choices"][0]["message"]["content"]
+        content = await _call_llm(db, user_prompt=prompt)
+        if not content:
+            raise ValueError("empty response")
         raw = content.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         suggestions = json.loads(raw)
-    except Exception:
-        logger.warning("LLM source suggestion failed, using fallback")
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.warning("LLM source suggestion failed: %s", e)
         suggestions = FALLBACK_SUGGESTIONS
 
     return {"suggestions": [SourceCreate(**s) for s in suggestions]}

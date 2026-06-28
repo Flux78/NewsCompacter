@@ -9,8 +9,8 @@ from fastapi.staticfiles import StaticFiles
 
 from database import init_db, async_session
 from services.scheduler import start_scheduler
-from routers.sources import ensure_default_sources
-from routers.topics import ensure_default_topics
+from routers.sources import _ensure_default_sources
+from routers.topics import _ensure_default_topics
 from routers import topics, llm_config, news, fetch, tag_prefs, sources, settings
 
 
@@ -18,8 +18,8 @@ from routers import topics, llm_config, news, fetch, tag_prefs, sources, setting
 async def lifespan(app: FastAPI):
     await init_db()
     async with async_session() as db:
-        await ensure_default_sources(db)
-        await ensure_default_topics(db)
+        await _ensure_default_sources(db)
+        await _ensure_default_topics(db)
     await start_scheduler(async_session)
     yield
 

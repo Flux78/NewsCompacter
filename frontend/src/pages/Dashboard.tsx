@@ -1,17 +1,21 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { api, type NewsItem, type Topic, type LlmConfig, type TagPref } from '../services/api'
 import NewsCard from '../components/NewsCard'
+import SpinnerButton from '../components/SpinnerButton'
+import LoadingState from '../components/LoadingState'
+import { useLoadOnMount } from '../useLoadOnMount'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24
+const OTHER_GROUP = 'other'
 
 function groupId(name: string) { return 'group-' + name.toLowerCase().replace(/\s+/g, '-') }
 
-export default function Dashboard() {
+export default function Dashboard(): JSX.Element {
+  const nowRef = useRef(Date.now())
   const [allNews, setAllNews] = useState<NewsItem[]>([])
   const [topics, setTopics] = useState<Topic[]>([])
   const [tagPrefs, setTagPrefs] = useState<TagPref[]>([])
-  const [loading, setLoading] = useState(true)
   const [fetching, setFetching] = useState(false)
   const [enriching, setEnriching] = useState(false)
   const [fetchMsg, setFetchMsg] = useState('')
@@ -25,9 +29,9 @@ export default function Dashboard() {
   const keywordMode = (searchParams.get('kmode') || 'OR').toUpperCase() === 'AND' ? 'AND' : 'OR'
 
   function itemAge(item: NewsItem): number {
-    const date = item.published_at ?? item.fetched_at
+    const date = item.publishedAt ?? item.fetchedAt
     if (!date) return Infinity
-    const diff = Date.now() - new Date(date).getTime()
+    const diff = nowRef.current - new Date(date).getTime()
     return diff / MS_PER_DAY
   }
 
@@ -49,18 +53,20 @@ export default function Dashboard() {
   }, [filteredNews, keywordFilter, keywordMode])
 
   const importantTopics = useMemo(
-    () => topics.filter((t) => t.is_important).map((t) => t.name.toLowerCase()),
+    () => topics.filter((t) => t.isImportant).map((t) => t.name.toLowerCase()),
     [topics],
   )
 
-  const importantTags = useMemo(
-    () => new Set(tagPrefs.filter((t) => t.is_important).map((t) => t.tag_name.toLowerCase())),
-    [tagPrefs],
-  )
-  const unimportantTags = useMemo(
-    () => new Set(tagPrefs.filter((t) => !t.is_important).map((t) => t.tag_name.toLowerCase())),
-    [tagPrefs],
-  )
+  const { importantTags, unimportantTags } = useMemo(() => {
+    const important = new Set<string>()
+    const unimportant = new Set<string>()
+    for (const t of tagPrefs) {
+      const lower = t.tagName.toLowerCase()
+      if (t.isImportant) important.add(lower)
+      else unimportant.add(lower)
+    }
+    return { importantTags: important, unimportantTags: unimportant }
+  }, [tagPrefs])
 
   function itemMatchesTopic(item: NewsItem, topicLower: string): boolean {
     const escaped = topicLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -94,8 +100,8 @@ export default function Dashboard() {
         }
       }
       if (!matched) {
-        if (!grouped['other']) grouped['other'] = []
-        grouped['other'].push(item)
+        if (!grouped[OTHER_GROUP]) grouped[OTHER_GROUP] = []
+        grouped[OTHER_GROUP].push(item)
       }
     }
     for (const key of Object.keys(grouped)) {
@@ -104,14 +110,13 @@ export default function Dashboard() {
     return Object.entries(grouped)
       .filter(([, items]) => items.length > 0)
       .sort(([a], [b]) => {
-        if (a === 'other') return 1
-        if (b === 'other') return -1
+        if (a === OTHER_GROUP) return 1
+        if (b === OTHER_GROUP) return -1
         return 0
       })
   }, [keywordFilteredNews, importantTopics, importantTags, unimportantTags])
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const { loading, reload } = useLoadOnMount(async () => {
     const [items, t, prefs, llm] = await Promise.all([
       api.news.list().catch(() => [] as NewsItem[]),
       api.topics.list().catch(() => [] as Topic[]),
@@ -122,20 +127,17 @@ export default function Dashboard() {
     setTopics(t)
     setTagPrefs(prefs)
     setLlmConfig(llm)
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { load() }, [load])
+  })
 
   useEffect(() => {
-    const handler = () => load()
+    const handler = () => reload()
     window.addEventListener('enrich-done', handler)
     window.addEventListener('fetch-done', handler)
     return () => {
       window.removeEventListener('enrich-done', handler)
       window.removeEventListener('fetch-done', handler)
     }
-  }, [load])
+  }, [reload])
 
   const handleFetchNow = async () => {
     setFetching(true)
@@ -146,7 +148,7 @@ export default function Dashboard() {
       if (res.fetched > 0) parts.push(`${res.fetched} Nachrichten geladen`)
       if (res.enriched > 0) parts.push(`${res.enriched} getaggt`)
       setFetchMsg(parts.length > 0 ? parts.join(', ') + '.' : 'Keine neuen Nachrichten')
-      await load()
+      await reload()
     } catch {
       setFetchMsg('Fehler beim Abruf')
     }
@@ -159,7 +161,7 @@ export default function Dashboard() {
     try {
       const res = await api.fetch.enrich()
       setFetchMsg(res.enriched > 0 ? `${res.enriched} Nachrichten getaggt` : 'Keine Nachrichten zu taggen')
-      await load()
+      await reload()
     } catch {
       setFetchMsg('Fehler bei der Tag-Analyse')
     }
@@ -172,12 +174,12 @@ export default function Dashboard() {
 
   const handleTagImportant = async (tag: string) => {
     await api.tagPrefs.set(tag, true)
-    await load()
+    await reload()
   }
 
   const handleTagUnimportant = async (tag: string) => {
     await api.tagPrefs.set(tag, false)
-    await load()
+    await reload()
   }
 
   const scrollToGroup = (name: string) => {
@@ -200,7 +202,8 @@ export default function Dashboard() {
                   className={`dash-sidebar-link${activeGroup === group ? ' active' : ''}`}
                   onClick={() => scrollToGroup(group)}
                 >
-                  {group === 'other' ? 'Allgemein' : group}
+{group === OTHER_GROUP ? 'Allgemein' : group}
+
                 </button>
               </li>
             ))}
@@ -212,16 +215,16 @@ export default function Dashboard() {
         <div className="page-header">
           <h2>Nachrichten</h2>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-outline btn-sm" onClick={handleEnrich} disabled={enriching}>
-              {enriching ? <span className="spinner" /> : 'Tag-Analyse'}
-            </button>
-            <button className="btn" onClick={handleFetchNow} disabled={fetching}>
-              {fetching ? <span className="spinner" /> : 'Jetzt aktualisieren'}
-            </button>
+            <SpinnerButton className="btn btn-outline btn-sm" onClick={handleEnrich} loading={enriching}>
+              Tag-Analyse
+            </SpinnerButton>
+            <SpinnerButton className="btn" onClick={handleFetchNow} loading={fetching}>
+              Jetzt aktualisieren
+            </SpinnerButton>
           </div>
         </div>
 
-        {llmConfig && !llmConfig.has_api_key && showLlmWarning && (
+        {llmConfig && !llmConfig.hasApiKey && showLlmWarning && (
           <div className="llm-warning">
             <span>⚠️ Kein LLM-API-Key konfiguriert – Tags, Zusammenfassungen und intelligente Gruppierung sind nicht verfügbar.</span>
             <button className="btn btn-sm" onClick={() => navigate('/llm-config')}>Konfigurieren</button>
@@ -276,7 +279,7 @@ export default function Dashboard() {
         </div>
 
         {loading ? (
-          <div className="empty-state"><span className="spinner" /></div>
+          <LoadingState />
         ) : entries.length === 0 ? (
           <div className="empty-state">
             <p>{keywordFilter ? 'Keine Nachrichten mit diesen Schlagworten.' : ageFilter ? 'Keine Nachrichten für diesen Zeitraum.' : 'Keine Nachrichten vorhanden.'}</p>
@@ -290,7 +293,7 @@ export default function Dashboard() {
           entries.map(([group, items]) => (
             <div key={group} id={groupId(group)}>
               <div className="group-title">
-                {group === 'other' ? 'Allgemein' : group}
+                {group === OTHER_GROUP ? 'Allgemein' : group}
               </div>
               {items.map((item) => (
                 <NewsCard

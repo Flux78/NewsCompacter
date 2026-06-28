@@ -8,6 +8,7 @@ import LlmConfig from './pages/LlmConfig'
 import SourceManager from './pages/SourceManager'
 
 const POLL_INTERVAL_MS = 5000
+const APP_VERSION = 'v0.2'
 
 export default function App() {
   const { theme, toggle } = useTheme()
@@ -121,7 +122,7 @@ export default function App() {
         <a href="https://react.dev" target="_blank" rel="noopener noreferrer">React</a>
         <a href="https://www.sqlite.org" target="_blank" rel="noopener noreferrer">SQLite</a>
         <a href="https://openrouter.ai" target="_blank" rel="noopener noreferrer">OpenRouter</a>
-        <span>· NewsCompacter v0.1</span>
+        <span>· NewsCompacter {APP_VERSION}</span>
       </footer>
     </>
   )

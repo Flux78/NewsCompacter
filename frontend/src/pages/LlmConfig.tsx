@@ -1,34 +1,38 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useState } from 'react'
 import { api, type LlmConfig as LlmConfigType } from '../services/api'
 import ModelSelect from '../components/ModelSelect'
+import { useLoadOnMount } from '../useLoadOnMount'
+import SpinnerButton from '../components/SpinnerButton'
+import LoadingState from '../components/LoadingState'
+
+const INTERVALS: { value: number; label: string }[] = [
+  { value: 60, label: 'Stündlich' },
+  { value: 360, label: 'Alle 6 Stunden' },
+  { value: 1440, label: 'Alle 24 Stunden' },
+]
 
 const DEFAULT_CONFIG: LlmConfigType = {
   provider: 'openrouter',
-  api_key: '',
-  has_api_key: false,
+  apiKey: '',
+  hasApiKey: false,
   model: 'meta-llama/llama-3.2-3b-instruct',
-  base_url: 'https://openrouter.ai/api/v1',
+  baseUrl: 'https://openrouter.ai/api/v1',
 }
 
-export default function LlmConfig() {
+export default function LlmConfig(): JSX.Element {
   const [config, setConfig] = useState<LlmConfigType>(DEFAULT_CONFIG)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [intervalVal, setIntervalVal] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const { loading, reload } = useLoadOnMount(async () => {
     const [cfg, intv] = await Promise.all([
       api.llmConfig.get().catch(() => null),
       api.fetch.getInterval().catch(() => ({ minutes: null })),
     ])
     if (cfg) setConfig(cfg)
     setIntervalVal(intv.minutes)
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { load() }, [load])
+  })
 
   const handleSave = async () => {
     setSaving(true)
@@ -52,7 +56,7 @@ export default function LlmConfig() {
   }
 
   if (loading) {
-    return <div className="container"><div className="empty-state"><span className="spinner" /></div></div>
+    return <div className="container"><LoadingState /></div>
   }
 
   return (
@@ -66,9 +70,9 @@ export default function LlmConfig() {
         <label>API-Key</label>
         <input
           type="password"
-          value={config.api_key}
-          onChange={(e) => setConfig({ ...config, api_key: e.target.value })}
-          placeholder={config.has_api_key ? '•••••••• (bereits gesetzt)' : 'sk-or-...'}
+          value={config.apiKey}
+          onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
+          placeholder={config.hasApiKey ? '•••••••• (bereits gesetzt)' : 'sk-or-...'}
         />
 
         <label>Model</label>
@@ -79,14 +83,14 @@ export default function LlmConfig() {
 
         <label>Base URL</label>
         <input
-          value={config.base_url}
-          onChange={(e) => setConfig({ ...config, base_url: e.target.value })}
+          value={config.baseUrl}
+          onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
           placeholder="https://openrouter.ai/api/v1"
         />
 
-        <button className="btn" onClick={handleSave} disabled={saving}>
-          {saving ? <span className="spinner" /> : 'Speichern'}
-        </button>
+        <SpinnerButton className="btn" onClick={handleSave} loading={saving}>
+          Speichern
+        </SpinnerButton>
       </div>
 
       <h2 style={{ marginTop: '1.5rem' }}>Zyklischer Abruf</h2>
@@ -97,9 +101,9 @@ export default function LlmConfig() {
           onChange={(e) => setIntervalVal(e.target.value ? Number(e.target.value) : null)}
         >
           <option value="">Aus (nur manuell)</option>
-          <option value="60">Stündlich</option>
-          <option value="360">Alle 6 Stunden</option>
-          <option value="1440">Alle 24 Stunden</option>
+          {INTERVALS.map((i) => (
+            <option key={i.value} value={i.value}>{i.label}</option>
+          ))}
         </select>
         <button className="btn" onClick={handleIntervalSave}>Speichern</button>
       </div>

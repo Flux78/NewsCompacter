@@ -1,4 +1,4 @@
-interface Props {
+interface SourceLinkProps {
   source: string
   url: string
 }
@@ -12,7 +12,7 @@ function shorten(url: string, source: string): string {
   }
 }
 
-export default function SourceLink({ source, url }: Props) {
+export default function SourceLink({ source, url }: SourceLinkProps) {
   return (
     <a
       className="source-link"
