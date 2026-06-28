@@ -233,18 +233,27 @@ export default function Dashboard() {
 
         <div className="filter-bar">
           <div className="filter-bar-row">
-            <input
-              type="text"
-              placeholder="Nach Schlagworten filtern... (Komma-getrennt)"
-              value={keywordFilter}
-              onChange={(e) => {
-                const v = e.target.value
-                const params = new URLSearchParams(searchParams.toString())
-                if (v) params.set('keyword', v)
-                else params.delete('keyword')
-                setSearchParams(params, { replace: true })
-              }}
-            />
+            <div className="filter-input-wrap">
+              <input
+                type="text"
+                placeholder="Nach Schlagworten filtern... (Komma-getrennt)"
+                value={keywordFilter}
+                onChange={(e) => {
+                  const v = e.target.value
+                  const params = new URLSearchParams(searchParams.toString())
+                  if (v) params.set('keyword', v)
+                  else params.delete('keyword')
+                  setSearchParams(params, { replace: true })
+                }}
+              />
+              {keywordFilter && (
+                <button className="clear-btn" onClick={() => {
+                  const params = new URLSearchParams(searchParams.toString())
+                  params.delete('keyword')
+                  setSearchParams(params, { replace: true })
+                }}>×</button>
+              )}
+            </div>
             <div className="filter-mode">
               <button
                 className={`filter-mode-btn${keywordMode === 'OR' ? ' active' : ''}`}

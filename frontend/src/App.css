@@ -352,9 +352,29 @@ label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.2
   gap: 0.5rem;
   align-items: center;
 }
-.filter-bar-row input {
+.filter-input-wrap {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+.filter-input-wrap input {
+  padding-right: 1.5rem;
+}
+.clear-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-muted, #888);
+  padding: 2px 4px;
+}
+.clear-btn:hover {
+  color: var(--text, #333);
 }
 .filter-mode {
   display: flex;
