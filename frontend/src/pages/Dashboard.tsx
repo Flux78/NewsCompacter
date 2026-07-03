@@ -23,7 +23,7 @@ export default function Dashboard(): JSX.Element {
   const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null)
   const [showLlmWarning, setShowLlmWarning] = useState(true)
   const navigate = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
+  const [searchParams] = useSearchParams()
   const ageFilter = searchParams.get('age')
   const keywordFilter = searchParams.get('keyword') || ''
   const keywordMode = (searchParams.get('kmode') || 'OR').toUpperCase() === 'AND' ? 'AND' : 'OR'
@@ -233,50 +233,6 @@ export default function Dashboard(): JSX.Element {
         )}
 
         {fetchMsg && <p style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>{fetchMsg}</p>}
-
-        <div className="filter-bar">
-          <div className="filter-bar-row">
-            <div className="filter-input-wrap">
-              <input
-                type="text"
-                placeholder="Nach Schlagworten filtern... (Komma-getrennt)"
-                value={keywordFilter}
-                onChange={(e) => {
-                  const v = e.target.value
-                  const params = new URLSearchParams(searchParams.toString())
-                  if (v) params.set('keyword', v)
-                  else params.delete('keyword')
-                  setSearchParams(params, { replace: true })
-                }}
-              />
-              {keywordFilter && (
-                <button className="clear-btn" onClick={() => {
-                  const params = new URLSearchParams(searchParams.toString())
-                  params.delete('keyword')
-                  setSearchParams(params, { replace: true })
-                }}>×</button>
-              )}
-            </div>
-            <div className="filter-mode">
-              <button
-                className={`filter-mode-btn${keywordMode === 'OR' ? ' active' : ''}`}
-                onClick={() => {
-                  const p = new URLSearchParams(searchParams.toString())
-                  p.set('kmode', 'OR')
-                  setSearchParams(p, { replace: true })
-                }}
-              >OR</button>
-              <button
-                className={`filter-mode-btn${keywordMode === 'AND' ? ' active' : ''}`}
-                onClick={() => {
-                  const p = new URLSearchParams(searchParams.toString())
-                  p.set('kmode', 'AND')
-                  setSearchParams(p, { replace: true })
-                }}
-              >AND</button>
-            </div>
-          </div>
-        </div>
 
         {loading ? (
           <LoadingState />
