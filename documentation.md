@@ -52,6 +52,7 @@ flowchart TB
 | PATCH | `/api/news/{id}` | Nachricht aktualisieren (z.B. `is_saved`) |
 | GET | `/api/llm-config` | LLM-Konfiguration abrufen |
 | PUT | `/api/llm-config` | LLM-Konfiguration speichern |
+| GET/POST/PUT/DELETE | `/api/topic-groups` | Themengruppen CRUD (Topics clusterbar) |
 | POST | `/api/fetch/now` | Manuellen Fetch auslösen |
 | POST | `/api/fetch/enrich` | Nachträgliche LLM-Anreicherung (Tags + Summary) |
 | GET | `/api/fetch/interval` | Aktuelles Fetch-Intervall |
@@ -71,7 +72,8 @@ flowchart TB
 
 | Tabelle | Beschreibung |
 |---|---|
-| `topics` | Themengebiete (Name, is_important) – Defaults werden beim ersten Start angelegt |
+| `topics` | Themengebiete (Name, is_important, group_id) – Defaults werden beim ersten Start angelegt |
+| `topic_groups` | Themengruppen (name, display_order) – fassen mehrere Topics zu einem Dashboard-Kapitel zusammen |
 | `news` | Nachrichten (Titel, Quelle[n], URLs, Content, Summary, image_url, Fingerprint) |
 | `news_tags` | Vom LLM generierte Tags (news_id, tag_name) |
 | `tag_preferences` | Benutzer-Feedback zu Tags (relevant/irrelevant) |
@@ -166,4 +168,5 @@ Im Entwicklungsmodus zusätzlich `npm run dev` im `frontend/`-Verzeichnis starte
 ## Wichtige Trennung
 
 - **Themengebiete (Topics)**: Werden **nur** im TopicManager vom Benutzer angelegt und bestimmen die Kapitel im Dashboard
+- **Themengruppen (TopicGroups)**: Fassen mehrere verwandte Themengebiete zusammen. Topics innerhalb einer Gruppe erscheinen im Dashboard als **ein** gemeinsames Kapitel. Die Reihenfolge wird über `display_order` gesteuert
 - **Tags**: Werden vom LLM generiert und sind Schlagwörter pro Nachricht. `+`/`−` speichert eine Präferenz in `tag_preferences`, erzeugt aber **kein** neues Themengebiet
