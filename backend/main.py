@@ -1,8 +1,6 @@
-import sys
-sys.path.insert(0, ".")
-
 from contextlib import asynccontextmanager
 from pathlib import Path
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -28,7 +26,7 @@ app = FastAPI(title="NewsCompacter", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

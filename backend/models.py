@@ -51,7 +51,7 @@ class LlmConfig(Base):
 
     id = Column(Integer, primary_key=True)
     provider = Column(String(100), default="openrouter")
-    api_key = Column(String(500))
+    api_key = Column(String(500))  # WARNING: Plaintext in DB — encryption recommended for production
     model = Column(String(200), default="meta-llama/llama-3.2-3b-instruct")
     base_url = Column(String(500), default="https://openrouter.ai/api/v1")
 
