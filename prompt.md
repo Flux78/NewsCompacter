@@ -8,7 +8,10 @@
 - **Frontend**: Vite + React 18 + TypeScript, React Router
 - **Datenhaltung**: SQLite (lokal, keine Server-Installation)
 - **Architektur**: Lokale Web-App (Backend localhost:8000, Frontend localhost:5173)
-- **News-Quellen**: Konfigurierbare RSS-Feeds
+- **News-Quellen**: Konfigurierbare RSS-Feeds + Google News
+- **Sicherheit**: API-Key-Verschlüsselung (Fernet), Auth-Middleware (opt-in per `NC_API_KEY`), Rate Limiting, Prompt-Injection-Schutz
+- **Migrations-System**: Schema-Version-Tabelle mit versionierten Migrationen
+- **Tests**: pytest (Backend), 18 Unit-Tests
 
 ## 2. Seiten / Bereiche
 
@@ -25,9 +28,15 @@
 - Bei mehreren Quellen (Dublette) werden Quellen-Namen mit ` + ` und URLs verknüpft
 - Tags mit `+` (links) und `−` (rechts) Buttons, immer sichtbar
 - Bewertete Tags zeigen aktiven Button farblich markiert (grün/rot)
-- Bild-Popup bei Mouseover auf Titel (aus RSS extrahiert, HTML gestrippt)
+- Bild-Popup bei Mouseover oder Klick auf Titel (aus RSS extrahiert, HTML gestrippt)
 - Buttons: "Jetzt aktualisieren" + "Anreichern" (LLM-Nachbearbeitung)
 - Sprachumschalter in der Navigation: DEU / ENG / ORIG (Default)
+- **Pagination**: "Mehr laden"-Button lädt 50 weitere Artikel pro Gruppe
+- **Tastatur-Navigation**: J/K zum Navigieren zwischen Kapiteln
+- **Lösch-Bestätigungsdialoge** bei Topics, Gruppen und Quellen
+- **Toast-Benachrichtigungen** für Fehler
+- **ErrorBoundary** – verhindert kompletten App-Crash bei Render-Fehlern
+- **Kapitel** zeigen Nachrichten-Anzahl (Gesamtsumme + pro Topic)
 
 ### 2.2 Themengebiete (`/topics`)
 - Default-Themengebiete (Weltpolitik, Deutschlandpolitik, etc.) werden beim ersten Start automatisch angelegt
@@ -41,7 +50,7 @@
 
 ### 2.3 LLM-Konfiguration (`/llm-config`)
 - Provider (frei eingebbar, Default: openrouter)
-- API-Key (Passwort-Feld)
+- API-Key (Passwort-Feld, verschlüsselt gespeichert, "Key löschen"-Button)
 - Model: Combobox mit Autocomplete, freie Modelle oben mit "Free"-Badge
 - Base URL (Default: https://openrouter.ai/api/v1)
 - Zyklischer Abruf: Intervall (stündlich / 6h / 24h / aus)
@@ -63,7 +72,8 @@
 | `news_tags` | Vom LLM generierte Tags (news_id, tag_name) |
 | `tag_preferences` | Benutzer-Feedback zu Tags (tag_name, is_important) |
 | `news_sources` | Konfigurierte RSS/News-Quellen (name, url, type, enabled) |
-| `llm_config` | Provider, API-Key, Model, Base-URL |
+| `llm_config` | Provider, API-Key (verschlüsselt), Model, Base-URL |
+| `schema_version` | Migrations-Versionstracking (version, applied_at) |
 | `settings` | Fetch-Intervall, Sprache (DEU/ENG/ORIG) |
 
 ### Wichtige Trennung
@@ -87,7 +97,10 @@
 
 - **Hell/Dunkel-Modus**: Toggle in Navigation, persistiert in localStorage, `prefers-color-scheme`
 - **Sprachumschalter**: DEU / ENG / ORIG, persistiert im Backend (Settings)
-- **Bild-Popup**: Mouseover auf Titel zeigt extrahiertes Artikelbild
+- **Bild-Popup**: Mouseover oder Klick auf Titel zeigt extrahiertes Artikelbild
+- **Pagination**: "Mehr laden"-Button (50 Artikel pro Ladung)
+- **Tastaturnavigation**: J/K wechselt zwischen Kapiteln
+- **`prefers-reduced-motion`**: Animationen werden bei Systemeinstellung deaktiviert
 - **Score-Sortierung**: Nachrichten innerhalb der Gruppen nach Tag-Bewertung sortiert
 - **Kompakte Quellen-Links**: nur Domain, abgeschnitten bei 160px mit Ellipsis
 - **Favicon/Nav-Icon**: SVG-Logo in Tab-Bar und Navigation
