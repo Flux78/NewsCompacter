@@ -110,7 +110,6 @@ export default function Dashboard(): JSX.Element {
 
   const entries = useMemo(() => {
     const grouped: Record<string, NewsItem[]> = {}
-    const groupOrder: string[] = []
 
     for (const item of keywordFilteredNews) {
       let matched = false
@@ -121,10 +120,7 @@ export default function Dashboard(): JSX.Element {
         const groupName = group.name
         for (const topic of groupTopics) {
           if (itemMatchesTopic(item, topic.name.toLowerCase())) {
-            if (!grouped[groupName]) {
-              grouped[groupName] = []
-              groupOrder.push(groupName)
-            }
+            if (!grouped[groupName]) grouped[groupName] = []
             grouped[groupName].push(item)
             matched = true
             break
@@ -137,10 +133,7 @@ export default function Dashboard(): JSX.Element {
         for (const topic of importantTopics) {
           if (topic.groupId) continue
           if (itemMatchesTopic(item, topic.name.toLowerCase())) {
-            if (!grouped[topic.name]) {
-              grouped[topic.name] = []
-              groupOrder.push(topic.name)
-            }
+            if (!grouped[topic.name]) grouped[topic.name] = []
             grouped[topic.name].push(item)
             matched = true
             break
@@ -149,10 +142,7 @@ export default function Dashboard(): JSX.Element {
       }
 
       if (!matched) {
-        if (!grouped[OTHER_GROUP]) {
-          grouped[OTHER_GROUP] = []
-          groupOrder.push(OTHER_GROUP)
-        }
+        if (!grouped[OTHER_GROUP]) grouped[OTHER_GROUP] = []
         grouped[OTHER_GROUP].push(item)
       }
     }
@@ -161,13 +151,26 @@ export default function Dashboard(): JSX.Element {
       grouped[key].sort((a, b) => itemScore(b) - itemScore(a))
     }
 
-    const orderMap = new Map(groupOrder.map((name, idx) => [name, idx]))
+    const orderedKeys = [
+      ...sortedGroups
+        .filter((g) => grouped[g.name]?.length > 0)
+        .map((g) => g.name),
+      ...importantTopics
+        .filter((t) => !t.groupId && grouped[t.name]?.length > 0)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((t) => t.name),
+    ]
+    if (grouped[OTHER_GROUP]?.length > 0) orderedKeys.push(OTHER_GROUP)
+
+    const orderMap = new Map(orderedKeys.map((name, idx) => [name, idx]))
     return Object.entries(grouped)
       .filter(([, items]) => items.length > 0)
       .sort(([a], [b]) => {
-        if (a === OTHER_GROUP) return 1
-        if (b === OTHER_GROUP) return -1
-        return (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0)
+        const ai = orderMap.get(a); const bi = orderMap.get(b)
+        if (ai === undefined && bi === undefined) return 0
+        if (ai === undefined) return 1
+        if (bi === undefined) return -1
+        return ai - bi
       })
   }, [keywordFilteredNews, importantTopics, sortedGroups, importantTags, unimportantTags])
 
