@@ -59,6 +59,7 @@ export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUni
           className="news-title-img"
           onMouseEnter={() => item.imageUrl && setShowImg(true)}
           onMouseLeave={() => setShowImg(false)}
+          onClick={() => item.imageUrl && setShowImg(!showImg)}
         >
           {highlightText(item.title, highlightKeywords)}
           {showImg && item.imageUrl && (
@@ -69,10 +70,14 @@ export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUni
         </h3>
         <button
           className={`btn-save${saved ? ' saved' : ''}`}
-          onClick={() => {
+          onClick={async () => {
             const next = !saved
             setSaved(next)
-            onSaveToggle?.(item.id, next)
+            try {
+              onSaveToggle?.(item.id, next)
+            } catch {
+              setSaved(!next)
+            }
           }}
           title={saved ? 'Nicht mehr speichern' : 'Zum Speichern markieren'}
           aria-label={saved ? 'Nicht mehr speichern' : 'Zum Speichern markieren'}

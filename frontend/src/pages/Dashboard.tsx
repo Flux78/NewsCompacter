@@ -1,18 +1,16 @@
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { api, type NewsItem, type Topic, type TopicGroup, type LlmConfig, type TagPref } from '../services/api'
 import NewsCard from '../components/NewsCard'
 import SpinnerButton from '../components/SpinnerButton'
 import LoadingState from '../components/LoadingState'
+import DashboardSidebar from '../components/DashboardSidebar'
+import { ToastContainer, showToast } from '../components/Toast'
 import { useLoadOnMount } from '../useLoadOnMount'
+import { useNewsFiltering } from '../hooks/useNewsFiltering'
+import { useNewsGrouping, groupId } from '../hooks/useNewsGrouping'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
-const MS_PER_DAY = 1000 * 60 * 60 * 24
-const OTHER_GROUP = 'other'
-
-function groupId(name: string) { return 'group-' + name.toLowerCase().replace(/\s+/g, '-') }
-
 export default function Dashboard(): JSX.Element {
-  const nowRef = useRef(Date.now())
   const [allNews, setAllNews] = useState<NewsItem[]>([])
   const [topics, setTopics] = useState<Topic[]>([])
   const [topicGroups, setTopicGroups] = useState<TopicGroup[]>([])
@@ -24,155 +22,44 @@ export default function Dashboard(): JSX.Element {
   const [activeTopic, setActiveTopic] = useState<string | null>(null)
   const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null)
   const [showLlmWarning, setShowLlmWarning] = useState(true)
+  const [visibleLimit, setVisibleLimit] = useState(50)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const ageFilter = searchParams.get('age')
   const keywordFilter = searchParams.get('keyword') || ''
   const keywordMode = (searchParams.get('kmode') || 'OR').toUpperCase() === 'AND' ? 'AND' : 'OR'
 
-  function itemAge(item: NewsItem): number {
-    const date = item.publishedAt ?? item.fetchedAt
-    if (!date) return Infinity
-    const diff = nowRef.current - new Date(date).getTime()
-    return diff / MS_PER_DAY
-  }
+  const { filtered: keywordFilteredNews } = useNewsFiltering(allNews, ageFilter, keywordFilter, keywordMode)
 
-  const filteredNews = useMemo(
-    () => (ageFilter ? allNews.filter((item) => itemAge(item) <= Number(ageFilter)) : allNews),
-    [allNews, ageFilter],
-  )
+  const {
+    importantTags,
+    unimportantTags,
+    importantTopics,
+    sortedGroups,
+    groupTopicMap,
+    itemMatchesTopic,
+    entries,
+    OTHER_GROUP,
+  } = useNewsGrouping(keywordFilteredNews, topics, topicGroups, tagPrefs)
 
-  const keywordFilteredNews = useMemo(() => {
-    if (!keywordFilter) return filteredNews
-    const keywords = keywordFilter.split(/[,\s]+/).filter(Boolean).map((k) => k.toLowerCase())
-    if (keywords.length === 0) return filteredNews
-    return filteredNews.filter((item) => {
-      const searchText = [item.title, item.summary || '', item.content || '', ...item.tags].join(' ').toLowerCase()
-      return keywordMode === 'AND'
-        ? keywords.every((k) => searchText.includes(k))
-        : keywords.some((k) => searchText.includes(k))
-    })
-  }, [filteredNews, keywordFilter, keywordMode])
-
-  const { importantTags, unimportantTags } = useMemo(() => {
-    const important = new Set<string>()
-    const unimportant = new Set<string>()
-    for (const t of tagPrefs) {
-      const lower = t.tagName.toLowerCase()
-      if (t.isImportant) important.add(lower)
-      else unimportant.add(lower)
-    }
-    return { importantTags: important, unimportantTags: unimportant }
-  }, [tagPrefs])
-
-  const importantTopics = useMemo(
-    () => topics.filter((t) => t.isImportant),
-    [topics],
-  )
-
-  const sortedGroups = useMemo(
-    () => [...topicGroups].sort((a, b) => a.displayOrder - b.displayOrder),
-    [topicGroups],
-  )
-
-  const groupTopicMap = useMemo(() => {
-    const map = new Map<string, string[]>()
+  const topicNewsCounts = useMemo(() => {
+    const counts = new Map<string, number>()
     for (const group of sortedGroups) {
-      const names = importantTopics
-        .filter((t) => t.groupId === group.id)
-        .map((t) => t.name)
-      if (names.length > 0) {
-        map.set(group.name, names)
+      const groupTopics = importantTopics.filter((t) => t.groupId === group.id)
+      for (const topic of groupTopics) {
+        counts.set(topic.name, 0)
       }
-    }
-    return map
-  }, [sortedGroups, importantTopics])
-
-  function itemMatchesTopic(item: NewsItem, topicLower: string): boolean {
-    const escaped = topicLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const pattern = new RegExp('\\b' + escaped + '\\b')
-    if (item.tags.some((t) => pattern.test(t.toLowerCase()))) return true
-    if (pattern.test(item.title.toLowerCase())) return true
-    if (pattern.test((item.summary ?? '').toLowerCase())) return true
-    if (pattern.test((item.content ?? '').toLowerCase())) return true
-    return false
-  }
-
-  function itemScore(item: NewsItem): number {
-    let score = 0
-    for (const tag of item.tags) {
-      const lower = tag.toLowerCase()
-      if (importantTags.has(lower)) score += 1
-      else if (unimportantTags.has(lower)) score -= 1
-    }
-    return score
-  }
-
-  const entries = useMemo(() => {
-    const grouped: Record<string, NewsItem[]> = {}
-
-    for (const item of keywordFilteredNews) {
-      let matched = false
-
-      for (const group of sortedGroups) {
-        const groupTopics = importantTopics.filter((t) => t.groupId === group.id)
-        if (groupTopics.length === 0) continue
-        const groupName = group.name
+      const groupEntries = entries.find(([name]) => name === group.name)?.[1] ?? []
+      for (const item of groupEntries) {
         for (const topic of groupTopics) {
           if (itemMatchesTopic(item, topic.name.toLowerCase())) {
-            if (!grouped[groupName]) grouped[groupName] = []
-            grouped[groupName].push(item)
-            matched = true
-            break
-          }
-        }
-        if (matched) break
-      }
-
-      if (!matched) {
-        for (const topic of importantTopics) {
-          if (topic.groupId) continue
-          if (itemMatchesTopic(item, topic.name.toLowerCase())) {
-            if (!grouped[topic.name]) grouped[topic.name] = []
-            grouped[topic.name].push(item)
-            matched = true
-            break
+            counts.set(topic.name, (counts.get(topic.name) ?? 0) + 1)
           }
         }
       }
-
-      if (!matched) {
-        if (!grouped[OTHER_GROUP]) grouped[OTHER_GROUP] = []
-        grouped[OTHER_GROUP].push(item)
-      }
     }
-
-    for (const key of Object.keys(grouped)) {
-      grouped[key].sort((a, b) => itemScore(b) - itemScore(a))
-    }
-
-    const orderedKeys = [
-      ...sortedGroups
-        .filter((g) => grouped[g.name]?.length > 0)
-        .map((g) => g.name),
-      ...importantTopics
-        .filter((t) => !t.groupId && grouped[t.name]?.length > 0)
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((t) => t.name),
-    ]
-    if (grouped[OTHER_GROUP]?.length > 0) orderedKeys.push(OTHER_GROUP)
-
-    const orderMap = new Map(orderedKeys.map((name, idx) => [name, idx]))
-    return Object.entries(grouped)
-      .filter(([, items]) => items.length > 0)
-      .sort(([a], [b]) => {
-        const ai = orderMap.get(a); const bi = orderMap.get(b)
-        if (ai === undefined && bi === undefined) return 0
-        if (ai === undefined) return 1
-        if (bi === undefined) return -1
-        return ai - bi
-      })
-  }, [keywordFilteredNews, importantTopics, sortedGroups, importantTags, unimportantTags])
+    return counts
+  }, [sortedGroups, importantTopics, entries, itemMatchesTopic])
 
   const { loading, reload } = useLoadOnMount(async () => {
     const [items, t, prefs, llm, tg] = await Promise.all([
@@ -229,7 +116,11 @@ export default function Dashboard(): JSX.Element {
   }
 
   const handleSaveToggle = async (id: number, saved: boolean) => {
-    await api.news.update(id, { is_saved: saved })
+    try {
+      await api.news.update(id, { is_saved: saved })
+    } catch {
+      showToast('Fehler beim Speichern')
+    }
   }
 
   const handleTagImportant = async (tag: string) => {
@@ -242,59 +133,54 @@ export default function Dashboard(): JSX.Element {
     await reload()
   }
 
-  const scrollToGroup = (name: string) => {
+  const scrollToGroup = useCallback((name: string) => {
     setActiveGroup(name)
     setActiveTopic(null)
     const el = document.getElementById(groupId(name))
     el?.scrollIntoView({ behavior: 'smooth' })
-  }
+  }, [])
 
-  const scrollToTopic = (groupName: string, topicName: string) => {
+  const scrollToTopic = useCallback((groupName: string, topicName: string) => {
     setActiveGroup(groupName)
     setActiveTopic(topicName)
     const el = document.getElementById(groupId(groupName))
     el?.scrollIntoView({ behavior: 'smooth' })
-  }
+  }, [])
+
+  const groupEntryRef = useRef<(string | null)[]>([])
+  groupEntryRef.current = entries.map(([g]) => g)
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'j' || e.key === 'J') {
+        const groups = groupEntryRef.current
+        const idx = activeGroup ? groups.indexOf(activeGroup) : -1
+        const next = idx < groups.length - 1 ? groups[idx + 1] : groups[0]
+        if (next) scrollToGroup(next)
+      } else if (e.key === 'k' || e.key === 'K') {
+        const groups = groupEntryRef.current
+        const idx = activeGroup ? groups.indexOf(activeGroup) : -1
+        const prev = idx > 0 ? groups[idx - 1] : groups[groups.length - 1]
+        if (prev) scrollToGroup(prev)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [activeGroup, scrollToGroup])
 
   return (
     <div className="dash-layout">
-      <aside className="dash-sidebar">
-        <h3>Kapitel</h3>
-        {entries.length === 0 ? (
-          <p className="dash-sidebar-empty">Keine</p>
-        ) : (
-          <ul>
-            {entries.map(([group]) => {
-              const topics = groupTopicMap.get(group)
-              return (
-                <li key={group}>
-                  <button
-                    className={`dash-sidebar-link${activeGroup === group && !activeTopic ? ' active' : ''}`}
-                    onClick={() => scrollToGroup(group)}
-                  >
-{group === OTHER_GROUP ? 'Allgemein' : group}
-
-                  </button>
-                  {topics && (
-                    <ul className="dash-sidebar-sublist">
-                      {topics.map((topic) => (
-                        <li key={topic}>
-                          <button
-                            className={`dash-sidebar-sublink${activeTopic === topic ? ' active' : ''}`}
-                            onClick={() => scrollToTopic(group, topic)}
-                          >
-                            {topic}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </aside>
+      <DashboardSidebar
+        entries={entries}
+        groupTopicMap={groupTopicMap}
+        activeGroup={activeGroup}
+        activeTopic={activeTopic}
+        otherGroup={OTHER_GROUP}
+        topicNewsCounts={topicNewsCounts}
+        onScrollToGroup={scrollToGroup}
+        onScrollToTopic={scrollToTopic}
+      />
 
       <main className="dash-main">
         <div className="page-header">
@@ -311,7 +197,7 @@ export default function Dashboard(): JSX.Element {
 
         {llmConfig && !llmConfig.hasApiKey && showLlmWarning && (
           <div className="llm-warning">
-            <span>⚠️ Kein LLM-API-Key konfiguriert – Tags, Zusammenfassungen und intelligente Gruppierung sind nicht verfügbar.</span>
+            <span>Kein LLM-API-Key konfiguriert – Tags, Zusammenfassungen und intelligente Gruppierung sind nicht verfügbar.</span>
             <button className="btn btn-sm" onClick={() => navigate('/llm-config')}>Konfigurieren</button>
             <button className="btn btn-sm btn-outline llm-warning-dismiss" onClick={() => setShowLlmWarning(false)} aria-label="Schließen">✕</button>
           </div>
@@ -331,37 +217,50 @@ export default function Dashboard(): JSX.Element {
             )}
           </div>
         ) : (
-          entries.map(([group, items]) => {
-            const topics = groupTopicMap.get(group)
-            const filtered = activeTopic && topics?.includes(activeTopic)
-              ? items.filter((item) => itemMatchesTopic(item, activeTopic.toLowerCase()))
-              : items
-            if (filtered.length === 0) return null
-            return (
-              <div key={group} id={groupId(group)}>
-                <div className="group-title">
-                  {group === OTHER_GROUP ? 'Allgemein' : group}
+          <>
+            {entries.map(([group, items]) => {
+              const topics = groupTopicMap.get(group)
+              const filtered = activeTopic && topics?.includes(activeTopic)
+                ? items.filter((item) => itemMatchesTopic(item, activeTopic.toLowerCase()))
+                : items
+              if (filtered.length === 0) return null
+              const displayItems = filtered.slice(0, visibleLimit)
+              return (
+                <div key={group} id={groupId(group)}>
+                  <div className="group-title">
+                    {group === OTHER_GROUP ? 'Allgemein' : group}
+                    {filtered.length > visibleLimit && ` (${visibleLimit} von ${filtered.length})`}
+                  </div>
+                  {activeTopic && topics?.includes(activeTopic) && (
+                    <div className="group-subtitle">Thema: {activeTopic}</div>
+                  )}
+                  {displayItems.map((item) => (
+                    <NewsCard
+                      key={`${group}-${item.id}`}
+                      item={item}
+                      keywordFilter={keywordFilter}
+                      onTagImportant={handleTagImportant}
+                      onTagUnimportant={handleTagUnimportant}
+                      importantTags={importantTags}
+                      unimportantTags={unimportantTags}
+                      onSaveToggle={handleSaveToggle}
+                    />
+                  ))}
                 </div>
-                {activeTopic && topics?.includes(activeTopic) && (
-                  <div className="group-subtitle">Thema: {activeTopic}</div>
-                )}
-                {filtered.map((item) => (
-                  <NewsCard
-                    key={`${group}-${item.id}`}
-                    item={item}
-                    keywordFilter={keywordFilter}
-                    onTagImportant={handleTagImportant}
-                    onTagUnimportant={handleTagUnimportant}
-                    importantTags={importantTags}
-                    unimportantTags={unimportantTags}
-                    onSaveToggle={handleSaveToggle}
-                  />
-                ))}
+              )
+            })}
+            {entries.some(([, items]) => items.length > visibleLimit) && (
+              <div style={{ textAlign: 'center', padding: '1rem' }}>
+                <button className="btn btn-outline" onClick={() => setVisibleLimit((n) => n + 50)}>
+                  Mehr laden
+                </button>
               </div>
-            )
-          })
+            )}
+          </>
         )}
       </main>
+
+      <ToastContainer />
     </div>
   )
 }

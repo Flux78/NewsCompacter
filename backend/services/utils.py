@@ -23,7 +23,7 @@ async def get_settings(db: AsyncSession) -> Settings:
 
 
 def merge_sources(current: str, new: str) -> str:
-    parts = [s.strip() for s in current.split("+")]
+    parts = [s.strip() for s in current.split("+") if s.strip()]
     for s in new.split("+"):
         s = s.strip()
         if s and s not in parts:

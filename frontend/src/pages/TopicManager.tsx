@@ -53,6 +53,7 @@ export default function TopicManager(): JSX.Element {
   }
 
   const handleDelete = async (id: number) => {
+    if (!window.confirm('Thema wirklich löschen?')) return
     await api.topics.delete(id)
     await reload()
   }
@@ -119,6 +120,7 @@ export default function TopicManager(): JSX.Element {
   const cancelGroupEdit = () => setEditingGroupId(null)
 
   const handleDeleteGroup = async (id: number) => {
+    if (!window.confirm('Gruppe wirklich löschen?')) return
     await api.topicGroups.delete(id)
     await reload()
   }

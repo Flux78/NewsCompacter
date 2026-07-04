@@ -1,5 +1,6 @@
 import logging
-from fastapi import APIRouter, Depends
+import time
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,9 @@ import status
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fetch", tags=["fetch"])
 
+_last_fetch: float = 0
+FETCH_COOLDOWN = 60
+
 
 class IntervalUpdate(BaseModel):
     minutes: int | None
@@ -22,6 +26,13 @@ class IntervalUpdate(BaseModel):
 
 @router.post("/now")
 async def fetch_now(db: AsyncSession = Depends(get_db)):
+    global _last_fetch
+    now = time.time()
+    if now - _last_fetch < FETCH_COOLDOWN:
+        remaining = int(FETCH_COOLDOWN - (now - _last_fetch))
+        raise HTTPException(429, f"Bitte {remaining}s warten bis zum nächsten Fetch")
+    _last_fetch = now
+
     result = await db.execute(select(NewsSource).where(NewsSource.enabled == True))
     sources = [s.to_dict() for s in result.scalars().all()]
     await status.set_fetching(True)

@@ -126,7 +126,7 @@ export const api = {
 
   llmConfig: {
     get: () => requestCamel<LlmConfig | null>('/llm-config'),
-    update: async (cfg: LlmConfig) => {
+    update: async (cfg: LlmConfig & { clearApiKey?: boolean }) => {
       const raw = _transformKeys<Record<string, unknown>>(cfg, _toSnake)
       return requestCamel<LlmConfig>('/llm-config', { method: 'PUT', body: JSON.stringify(raw) })
     },
