@@ -21,6 +21,7 @@ export default function Dashboard(): JSX.Element {
   const [enriching, setEnriching] = useState(false)
   const [fetchMsg, setFetchMsg] = useState('')
   const [activeGroup, setActiveGroup] = useState<string | null>(null)
+  const [activeTopic, setActiveTopic] = useState<string | null>(null)
   const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null)
   const [showLlmWarning, setShowLlmWarning] = useState(true)
   const navigate = useNavigate()
@@ -73,6 +74,19 @@ export default function Dashboard(): JSX.Element {
     () => [...topicGroups].sort((a, b) => a.displayOrder - b.displayOrder),
     [topicGroups],
   )
+
+  const groupTopicMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const group of sortedGroups) {
+      const names = importantTopics
+        .filter((t) => t.groupId === group.id)
+        .map((t) => t.name)
+      if (names.length > 0) {
+        map.set(group.name, names)
+      }
+    }
+    return map
+  }, [sortedGroups, importantTopics])
 
   function itemMatchesTopic(item: NewsItem, topicLower: string): boolean {
     const escaped = topicLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -227,7 +241,15 @@ export default function Dashboard(): JSX.Element {
 
   const scrollToGroup = (name: string) => {
     setActiveGroup(name)
+    setActiveTopic(null)
     const el = document.getElementById(groupId(name))
+    el?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const scrollToTopic = (groupName: string, topicName: string) => {
+    setActiveGroup(groupName)
+    setActiveTopic(topicName)
+    const el = document.getElementById(groupId(groupName))
     el?.scrollIntoView({ behavior: 'smooth' })
   }
 
@@ -239,17 +261,34 @@ export default function Dashboard(): JSX.Element {
           <p className="dash-sidebar-empty">Keine</p>
         ) : (
           <ul>
-            {entries.map(([group]) => (
-              <li key={group}>
-                <button
-                  className={`dash-sidebar-link${activeGroup === group ? ' active' : ''}`}
-                  onClick={() => scrollToGroup(group)}
-                >
+            {entries.map(([group]) => {
+              const topics = groupTopicMap.get(group)
+              return (
+                <li key={group}>
+                  <button
+                    className={`dash-sidebar-link${activeGroup === group && !activeTopic ? ' active' : ''}`}
+                    onClick={() => scrollToGroup(group)}
+                  >
 {group === OTHER_GROUP ? 'Allgemein' : group}
 
-                </button>
-              </li>
-            ))}
+                  </button>
+                  {topics && (
+                    <ul className="dash-sidebar-sublist">
+                      {topics.map((topic) => (
+                        <li key={topic}>
+                          <button
+                            className={`dash-sidebar-sublink${activeTopic === topic ? ' active' : ''}`}
+                            onClick={() => scrollToTopic(group, topic)}
+                          >
+                            {topic}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         )}
       </aside>
@@ -289,25 +328,35 @@ export default function Dashboard(): JSX.Element {
             )}
           </div>
         ) : (
-          entries.map(([group, items]) => (
-            <div key={group} id={groupId(group)}>
-              <div className="group-title">
-                {group === OTHER_GROUP ? 'Allgemein' : group}
+          entries.map(([group, items]) => {
+            const topics = groupTopicMap.get(group)
+            const filtered = activeTopic && topics?.includes(activeTopic)
+              ? items.filter((item) => itemMatchesTopic(item, activeTopic.toLowerCase()))
+              : items
+            if (filtered.length === 0) return null
+            return (
+              <div key={group} id={groupId(group)}>
+                <div className="group-title">
+                  {group === OTHER_GROUP ? 'Allgemein' : group}
+                </div>
+                {activeTopic && topics?.includes(activeTopic) && (
+                  <div className="group-subtitle">Thema: {activeTopic}</div>
+                )}
+                {filtered.map((item) => (
+                  <NewsCard
+                    key={`${group}-${item.id}`}
+                    item={item}
+                    keywordFilter={keywordFilter}
+                    onTagImportant={handleTagImportant}
+                    onTagUnimportant={handleTagUnimportant}
+                    importantTags={importantTags}
+                    unimportantTags={unimportantTags}
+                    onSaveToggle={handleSaveToggle}
+                  />
+                ))}
               </div>
-              {items.map((item) => (
-                <NewsCard
-                  key={`${group}-${item.id}`}
-                  item={item}
-                  keywordFilter={keywordFilter}
-                  onTagImportant={handleTagImportant}
-                  onTagUnimportant={handleTagUnimportant}
-                  importantTags={importantTags}
-                  unimportantTags={unimportantTags}
-                  onSaveToggle={handleSaveToggle}
-                />
-              ))}
-            </div>
-          ))
+            )
+          })
         )}
       </main>
     </div>
