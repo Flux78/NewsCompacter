@@ -9,7 +9,7 @@ from database import init_db, async_session
 from services.scheduler import start_scheduler
 from routers.sources import _ensure_default_sources
 from routers.topics import _ensure_default_topics
-from routers import topics, llm_config, news, fetch, tag_prefs, sources, settings
+from routers import topics, llm_config, news, fetch, tag_prefs, sources, settings, topic_groups
 
 
 @asynccontextmanager
@@ -39,6 +39,7 @@ app.include_router(fetch.router)
 app.include_router(tag_prefs.router)
 app.include_router(sources.router)
 app.include_router(settings.router)
+app.include_router(topic_groups.router)
 
 
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { api, type NewsItem, type Topic, type LlmConfig, type TagPref } from '../services/api'
+import { api, type NewsItem, type Topic, type TopicGroup, type LlmConfig, type TagPref } from '../services/api'
 import NewsCard from '../components/NewsCard'
 import SpinnerButton from '../components/SpinnerButton'
 import LoadingState from '../components/LoadingState'
@@ -15,6 +15,7 @@ export default function Dashboard(): JSX.Element {
   const nowRef = useRef(Date.now())
   const [allNews, setAllNews] = useState<NewsItem[]>([])
   const [topics, setTopics] = useState<Topic[]>([])
+  const [topicGroups, setTopicGroups] = useState<TopicGroup[]>([])
   const [tagPrefs, setTagPrefs] = useState<TagPref[]>([])
   const [fetching, setFetching] = useState(false)
   const [enriching, setEnriching] = useState(false)
@@ -52,11 +53,6 @@ export default function Dashboard(): JSX.Element {
     })
   }, [filteredNews, keywordFilter, keywordMode])
 
-  const importantTopics = useMemo(
-    () => topics.filter((t) => t.isImportant).map((t) => t.name.toLowerCase()),
-    [topics],
-  )
-
   const { importantTags, unimportantTags } = useMemo(() => {
     const important = new Set<string>()
     const unimportant = new Set<string>()
@@ -67,6 +63,16 @@ export default function Dashboard(): JSX.Element {
     }
     return { importantTags: important, unimportantTags: unimportant }
   }, [tagPrefs])
+
+  const importantTopics = useMemo(
+    () => topics.filter((t) => t.isImportant),
+    [topics],
+  )
+
+  const sortedGroups = useMemo(
+    () => [...topicGroups].sort((a, b) => a.displayOrder - b.displayOrder),
+    [topicGroups],
+  )
 
   function itemMatchesTopic(item: NewsItem, topicLower: string): boolean {
     const escaped = topicLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -90,43 +96,80 @@ export default function Dashboard(): JSX.Element {
 
   const entries = useMemo(() => {
     const grouped: Record<string, NewsItem[]> = {}
+    const groupOrder: string[] = []
+
     for (const item of keywordFilteredNews) {
       let matched = false
-      for (const topic of importantTopics) {
-        if (itemMatchesTopic(item, topic)) {
-          if (!grouped[topic]) grouped[topic] = []
-          grouped[topic].push(item)
-          matched = true
+
+      for (const group of sortedGroups) {
+        const groupTopics = importantTopics.filter((t) => t.groupId === group.id)
+        if (groupTopics.length === 0) continue
+        const groupName = group.name
+        for (const topic of groupTopics) {
+          if (itemMatchesTopic(item, topic.name.toLowerCase())) {
+            if (!grouped[groupName]) {
+              grouped[groupName] = []
+              groupOrder.push(groupName)
+            }
+            grouped[groupName].push(item)
+            matched = true
+            break
+          }
+        }
+        if (matched) break
+      }
+
+      if (!matched) {
+        for (const topic of importantTopics) {
+          if (topic.groupId) continue
+          if (itemMatchesTopic(item, topic.name.toLowerCase())) {
+            if (!grouped[topic.name]) {
+              grouped[topic.name] = []
+              groupOrder.push(topic.name)
+            }
+            grouped[topic.name].push(item)
+            matched = true
+            break
+          }
         }
       }
+
       if (!matched) {
-        if (!grouped[OTHER_GROUP]) grouped[OTHER_GROUP] = []
+        if (!grouped[OTHER_GROUP]) {
+          grouped[OTHER_GROUP] = []
+          groupOrder.push(OTHER_GROUP)
+        }
         grouped[OTHER_GROUP].push(item)
       }
     }
+
     for (const key of Object.keys(grouped)) {
       grouped[key].sort((a, b) => itemScore(b) - itemScore(a))
     }
+
+    const orderMap = new Map(groupOrder.map((name, idx) => [name, idx]))
     return Object.entries(grouped)
       .filter(([, items]) => items.length > 0)
       .sort(([a], [b]) => {
         if (a === OTHER_GROUP) return 1
         if (b === OTHER_GROUP) return -1
-        return 0
+        return (orderMap.get(a) ?? 0) - (orderMap.get(b) ?? 0)
       })
-  }, [keywordFilteredNews, importantTopics, importantTags, unimportantTags])
+  }, [keywordFilteredNews, importantTopics, sortedGroups, importantTags, unimportantTags])
 
   const { loading, reload } = useLoadOnMount(async () => {
-    const [items, t, prefs, llm] = await Promise.all([
+    const [items, t, prefs, llm, tg] = await Promise.all([
       api.news.list().catch(() => [] as NewsItem[]),
       api.topics.list().catch(() => [] as Topic[]),
       api.tagPrefs.list().catch(() => [] as TagPref[]),
       api.llmConfig.get().catch(() => null),
+      api.topicGroups.list().catch(() => [] as TopicGroup[]),
     ])
     setAllNews(items)
     setTopics(t)
     setTagPrefs(prefs)
     setLlmConfig(llm)
+    setTopicGroups(tg)
   })
 
   useEffect(() => {
