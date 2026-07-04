@@ -37,6 +37,13 @@ export interface Topic {
   id: number
   name: string
   isImportant: boolean
+  groupId: number | null
+}
+
+export interface TopicGroup {
+  id: number
+  name: string
+  displayOrder: number
 }
 
 export interface NewsItem {
@@ -80,10 +87,23 @@ export const api = {
     list: () => requestCamel<Topic[]>('/topics'),
     create: (name: string, isImportant = true) =>
       requestCamel<Topic>('/topics', { method: 'POST', body: JSON.stringify({ name, is_important: isImportant }) }),
-    update: (id: number, data: { name?: string; is_important?: boolean }) =>
+    update: (id: number, data: { name?: string; is_important?: boolean; group_id?: number | null }) =>
       requestCamel<Topic>(`/topics/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     delete: (id: number) =>
       request<{ ok: boolean }>(`/topics/${id}`, { method: 'DELETE' }),
+  },
+
+  topicGroups: {
+    list: () => requestCamel<TopicGroup[]>('/topic-groups'),
+    create: (name: string, displayOrder = 0) =>
+      requestCamel<TopicGroup>('/topic-groups', {
+        method: 'POST',
+        body: JSON.stringify({ name, display_order: displayOrder }),
+      }),
+    update: (id: number, data: { name?: string; display_order?: number }) =>
+      requestCamel<TopicGroup>(`/topic-groups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      request<{ ok: boolean }>(`/topic-groups/${id}`, { method: 'DELETE' }),
   },
 
   news: {

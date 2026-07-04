@@ -27,17 +27,20 @@ router = APIRouter(prefix="/api/topics", tags=["topics"])
 class TopicCreate(BaseModel):
     name: str
     is_important: bool = True
+    group_id: int | None = None
 
 
 class TopicUpdate(BaseModel):
     name: str | None = None
     is_important: bool | None = None
+    group_id: int | None = None
 
 
 class TopicResponse(BaseModel):
     id: int
     name: str
     is_important: bool
+    group_id: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -53,7 +56,7 @@ async def create_topic(body: TopicCreate, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(select(Topic).where(Topic.name == body.name))
     if existing.scalar_one_or_none():
         raise HTTPException(400, "Topic already exists")
-    topic = Topic(name=body.name, is_important=body.is_important)
+    topic = Topic(name=body.name, is_important=body.is_important, group_id=body.group_id)
     db.add(topic)
     await db.commit()
     await db.refresh(topic)
@@ -72,6 +75,8 @@ async def update_topic(topic_id: int, body: TopicUpdate, db: AsyncSession = Depe
         topic.name = body.name
     if body.is_important is not None:
         topic.is_important = body.is_important
+    if "group_id" in body.model_fields_set:
+        topic.group_id = body.group_id
     await db.commit()
     await db.refresh(topic)
     return topic

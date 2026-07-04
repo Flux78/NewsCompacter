@@ -37,6 +37,7 @@ async def _migrate():
         for stmt in [
             "ALTER TABLE news ADD COLUMN published_at DATETIME",
             "ALTER TABLE news ADD COLUMN is_saved BOOLEAN DEFAULT 0",
+            "ALTER TABLE topics ADD COLUMN group_id INTEGER REFERENCES topic_groups(id)",
         ]:
             try:
                 await conn.execute(text(stmt))

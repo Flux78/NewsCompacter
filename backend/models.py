@@ -9,13 +9,25 @@ def _utcnow():
     return datetime.datetime.now(timezone.utc)
 
 
+class TopicGroup(Base):
+    __tablename__ = "topic_groups"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    display_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=_utcnow)
+
+
 class Topic(Base):
     __tablename__ = "topics"
 
     id = Column(Integer, primary_key=True)
     name = Column(String(200), unique=True, nullable=False)
     is_important = Column(Boolean, default=True)
+    group_id = Column(Integer, ForeignKey("topic_groups.id"), nullable=True)
     created_at = Column(DateTime, default=_utcnow)
+
+    group = relationship("TopicGroup", backref="topics")
 
 
 class News(Base):
