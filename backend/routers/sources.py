@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from services.llm_service import _call_llm
+from services.types import SourceType
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class SourceResponse(BaseModel):
     id: int
     name: str
     url: str
-    source_type: str
+    source_type: SourceType
     enabled: bool
 
     model_config = {"from_attributes": True}
@@ -53,13 +54,13 @@ class SourceResponse(BaseModel):
 class SourceCreate(BaseModel):
     name: str
     url: str
-    source_type: str = "rss"
+    source_type: SourceType = SourceType.RSS
 
 
 class SourceUpdate(BaseModel):
     name: str | None = None
     url: str | None = None
-    source_type: str | None = None
+    source_type: SourceType | None = None
     enabled: bool | None = None
 
 

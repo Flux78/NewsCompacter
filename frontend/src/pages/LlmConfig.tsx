@@ -21,6 +21,7 @@ const DEFAULT_CONFIG: LlmConfigType = {
 
 export default function LlmConfig(): JSX.Element {
   const [config, setConfig] = useState<LlmConfigType>(DEFAULT_CONFIG)
+  const [keyDirty, setKeyDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [intervalVal, setIntervalVal] = useState<number | null>(null)
@@ -30,7 +31,9 @@ export default function LlmConfig(): JSX.Element {
       api.llmConfig.get().catch(() => null),
       api.fetch.getInterval().catch(() => ({ minutes: null })),
     ])
-    if (cfg) setConfig(cfg)
+    if (cfg) {
+      setConfig({ ...cfg, apiKey: '' })
+    }
     setIntervalVal(intv.minutes)
   })
 
@@ -38,10 +41,30 @@ export default function LlmConfig(): JSX.Element {
     setSaving(true)
     setMessage('')
     try {
-      await api.llmConfig.update(config)
+      const payload: LlmConfigType & { clearApiKey?: boolean } = { ...config }
+      if (!keyDirty) {
+        delete payload.apiKey
+      }
+      await api.llmConfig.update(payload)
+      setKeyDirty(false)
+      setConfig((c) => ({ ...c, apiKey: '', hasApiKey: !payload.clearApiKey && (c.hasApiKey || keyDirty) }))
       setMessage('Gespeichert')
     } catch {
       setMessage('Fehler beim Speichern')
+    }
+    setSaving(false)
+  }
+
+  const handleClearKey = async () => {
+    setSaving(true)
+    setMessage('')
+    try {
+      await api.llmConfig.update({ ...config, apiKey: '', clearApiKey: true } as LlmConfigType & { clearApiKey: boolean })
+      setKeyDirty(false)
+      setConfig((c) => ({ ...c, apiKey: '', hasApiKey: false }))
+      setMessage('API-Key gelöscht')
+    } catch {
+      setMessage('Fehler beim Löschen')
     }
     setSaving(false)
   }
@@ -68,12 +91,23 @@ export default function LlmConfig(): JSX.Element {
         <input value={config.provider} onChange={(e) => setConfig({ ...config, provider: e.target.value })} />
 
         <label>API-Key</label>
-        <input
-          type="password"
-          value={config.apiKey}
-          onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-          placeholder={config.hasApiKey ? '•••••••• (bereits gesetzt)' : 'sk-or-...'}
-        />
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <input
+            type="password"
+            value={config.apiKey}
+            onChange={(e) => {
+              setConfig({ ...config, apiKey: e.target.value })
+              setKeyDirty(true)
+            }}
+            placeholder={!keyDirty && config.hasApiKey ? '•••••••• (bereits gesetzt)' : 'sk-or-...'}
+            style={{ marginBottom: 0, flex: 1 }}
+          />
+          {config.hasApiKey && (
+            <button type="button" className="btn btn-sm btn-outline" onClick={handleClearKey} style={{ flexShrink: 0, marginBottom: 0 }}>
+              Key löschen
+            </button>
+          )}
+        </div>
 
         <label>Model</label>
         <ModelSelect

@@ -29,5 +29,9 @@ Thumbs.db
 # Service-Unit (enthält Username)
 newscompacter.service
 
+# Encryption key
+*.encryption_key
+
 # Plan/Notizen
 cleanup-plan.md
+code-review-ergebnisse.md

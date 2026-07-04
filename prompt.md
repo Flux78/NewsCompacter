@@ -1,5 +1,7 @@
 # NewsCompacter – Vollständige Anforderungsübersicht
 
+> Ursprüngliche Anforderung: Nachrichten aus RSS-Feeds und Google News einholen, per LLM bewerten/deduplizieren/taggen, nach benutzerdefinierten Themengebieten gruppiert präsentieren. Quellen-Links kompakt (Domain-Only). LLM-Provider und Authentifizierung frei konfigurierbar. Recherche manuell oder zyklisch.
+
 ## 1. Tech-Stack & Architektur
 
 - **Backend**: Python mit FastAPI (async), SQLAlchemy, SQLite (aiosqlite)

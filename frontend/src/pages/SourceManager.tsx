@@ -32,6 +32,7 @@ export default function SourceManager(): JSX.Element {
   }
 
   const handleDelete = async (id: number) => {
+    if (!window.confirm('Quelle wirklich löschen?')) return
     await api.sources.delete(id)
     await reload()
   }

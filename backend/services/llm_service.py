@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from models import LlmConfig, News, NewsTag
 from services.utils import merge_sources, merge_urls, get_settings
+from services.crypto import decrypt
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,8 @@ LLM_MAX_TOKENS = 1024
 LLM_TIMEOUT = 60
 MAX_TAGS_PER_ARTICLE = 5
 DEDUP_LIMIT = 100
+MAX_PROMPT_CONTENT = 3000
+MAX_TITLE_LENGTH = 300
 
 async def _get_config(db: AsyncSession) -> LlmConfig | None:
     result = await db.execute(select(LlmConfig))
@@ -44,8 +47,9 @@ async def _call_llm(db: AsyncSession, system_prompt: str = "", user_prompt: str 
     if suffix:
         system_prompt += suffix
 
+    api_key = decrypt(config.api_key)
     headers = {
-        "Authorization": f"Bearer {config.api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     if config.provider == "openrouter":
@@ -74,11 +78,19 @@ async def _call_llm(db: AsyncSession, system_prompt: str = "", user_prompt: str 
         return None
 
 
+def _sanitize(text: str | None) -> str:
+    if not text:
+        return ""
+    return text[:MAX_PROMPT_CONTENT]
+
+
 async def generate_tags(db: AsyncSession, news: News, lang: str = "ORIG") -> List[str]:
+    title = _sanitize(news.title)[:MAX_TITLE_LENGTH]
+    content = _sanitize(news.content)
     prompt = (
         f"Extract 3-5 keywords (tags) from the following news article. "
         f"Respond ONLY with a JSON array, e.g. [\"Tag1\", \"Tag2\", \"Tag3\"].\n\n"
-        f"Title: {news.title}\nContent: {news.content}"
+        f"Title: {title}\nContent: {content}"
     )
     result = await _call_llm(db, "You extract keywords (tags) from news articles.", prompt, lang)
     if not result:
@@ -87,16 +99,18 @@ async def generate_tags(db: AsyncSession, news: News, lang: str = "ORIG") -> Lis
     try:
         tags = json.loads(result)
         if isinstance(tags, list):
-            return [str(t).strip() for t in tags[:MAX_TAGS_PER_ARTICLE]]
+            return [str(t).strip()[:100] for t in tags[:MAX_TAGS_PER_ARTICLE]]
     except (json.JSONDecodeError, TypeError):
         pass
     return []
 
 
 async def generate_summary(db: AsyncSession, news: News, lang: str = "ORIG") -> str | None:
+    title = _sanitize(news.title)[:MAX_TITLE_LENGTH]
+    content = _sanitize(news.content)
     prompt = (
         f"Summarize the following news article in 1-2 sentences.\n\n"
-        f"Title: {news.title}\nContent: {news.content}"
+        f"Title: {title}\nContent: {content}"
     )
     return await _call_llm(db, "You summarize news articles concisely.", prompt, lang)
 
@@ -105,7 +119,7 @@ async def deduplicate_articles(db: AsyncSession, news_list: List[News]) -> List[
     if len(news_list) < 2:
         return [[n] for n in news_list]
 
-    titles = "\n".join(f"{i+1}. {n.title}" for i, n in enumerate(news_list))
+    titles = "\n".join(f"{i+1}. {_sanitize(n.title)[:MAX_TITLE_LENGTH]}" for i, n in enumerate(news_list))
     prompt = (
         f"The following news headlines may be duplicates. "
         f"Group them if they cover the same topic. "

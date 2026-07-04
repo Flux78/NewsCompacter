@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,7 +6,9 @@ from pydantic import BaseModel, computed_field
 
 from database import get_db
 from models import LlmConfig
+from services.crypto import encrypt, decrypt, is_encrypted
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/llm-config", tags=["llm"])
 
 
@@ -28,6 +31,7 @@ class LlmConfigUpdate(BaseModel):
     api_key: str | None = None
     model: str | None = None
     base_url: str | None = None
+    clear_api_key: bool = False
 
 
 DEFAULTS = {
@@ -47,7 +51,8 @@ async def get_config(db: AsyncSession = Depends(get_db)):
         db.add(config)
         await db.commit()
         await db.refresh(config)
-    return config
+    _migrate_key_if_needed(db, config)
+    return _masked_response(config)
 
 
 @router.put("", response_model=LlmConfigOut)
@@ -57,10 +62,34 @@ async def update_config(body: LlmConfigUpdate, db: AsyncSession = Depends(get_db
     if not config:
         config = LlmConfig(id=1)
         db.add(config)
-    for field in ("provider", "api_key", "model", "base_url"):
+
+    if body.clear_api_key:
+        config.api_key = ""
+    elif body.api_key is not None and body.api_key.strip() != "":
+        config.api_key = encrypt(body.api_key)
+
+    for field in ("provider", "model", "base_url"):
         val = getattr(body, field, None)
-        if val is not None:
+        if val is not None and val != "":
             setattr(config, field, val)
+
     await db.commit()
     await db.refresh(config)
-    return config
+    return _masked_response(config)
+
+
+def _masked_response(config: LlmConfig) -> LlmConfigOut:
+    return LlmConfigOut(
+        provider=config.provider,
+        api_key="***" if config.api_key else "",
+        model=config.model,
+        base_url=config.base_url,
+    )
+
+
+async def _migrate_key_if_needed(db: AsyncSession, config: LlmConfig) -> None:
+    if config.api_key and not is_encrypted(config.api_key):
+        logger.info("Migrating plaintext API key to encrypted storage")
+        config.api_key = encrypt(config.api_key)
+        await db.commit()
+        await db.refresh(config)
