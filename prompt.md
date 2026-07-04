@@ -55,7 +55,8 @@
 
 | Tabelle | Beschreibung |
 |---|---|
-| `topics` | Themengebiete (Name, is_important) – **nur vom Benutzer** |
+| `topics` | Themengebiete (Name, is_important, group_id) – **nur vom Benutzer** |
+| `topic_groups` | Themengruppen (name, display_order) – bündeln mehrere Topics zu einem Kapitel |
 | `news` | Nachrichten (Titel, Quelle, URL, Content, Summary, image_url, Fingerprint) |
 | `news_tags` | Vom LLM generierte Tags (news_id, tag_name) |
 | `tag_preferences` | Benutzer-Feedback zu Tags (tag_name, is_important) |
@@ -65,6 +66,7 @@
 
 ### Wichtige Trennung
 - **Tags ≠ Themengebiete**: Tags werden vom LLM generiert. Themengebiete vom Benutzer.
+- **Themengruppen**: Fassen mehrere Topics zusammen, sodass sie im Dashboard als **ein** Kapitel erscheinen. Topics ohne Gruppe bleiben eigenständige Kapitel.
 - **Dubletten (Fingerprint)**: Gleicher Titel (source-agnostischer SHA-256-Hash) aus verschiedenen Quellen → ein Eintrag (Quellen + URLs kombiniert, längster Content gewinnt)
 - **Dubletten (LLM)**: `deduplicate_articles()` erkennt semantisch ähnliche Artikel auch bei unterschiedlichen Titeln und führt Quellen/URLs/Content zusammen. Läuft automatisch während der LLM-Anreicherung.
 - **Artikel-Content**: Falls RSS nur Kurztext liefert (< 80 Zeichen), wird die Artikel-URL abgerufen und Text aus `<article>`/`<body>` extrahiert (script/style/nav entfernt, max 2000 Zeichen)
@@ -108,7 +110,8 @@ oder `http://localhost:5173` im Dev-Modus (mit `npm run dev`).
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| GET/POST/PUT/DELETE | `/api/topics` | Themengebiete CRUD |
+| GET/POST/PUT/DELETE | `/api/topics` | Themengebiete CRUD (`group_id` im Body) |
+| GET/POST/PUT/DELETE | `/api/topic-groups` | Themengruppen CRUD |
 | GET | `/api/news` | Nachrichten (optional `?topic_id=`) |
 | PATCH | `/api/news/{id}` | Nachricht aktualisieren (z.B. `is_saved`) |
 | GET/PUT | `/api/llm-config` | LLM-Konfiguration |
