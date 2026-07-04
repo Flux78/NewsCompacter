@@ -240,14 +240,32 @@ nav a.active { color: var(--nav-link-hover); background: rgba(255,255,255,0.15);
 .dash-sidebar-link:hover { background: var(--overlay); color: var(--text); }
 .dash-sidebar-link.active { background: var(--tag-bg); color: var(--tag-text); font-weight: 600; }
 .dash-sidebar-empty { font-size: 0.8rem; color: var(--text-muted); }
+.dash-sidebar-sublist { list-style: none; padding-left: 0.75rem; margin-top: 2px; }
+.dash-sidebar-sublink {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.dash-sidebar-sublink:hover { background: var(--overlay); color: var(--text); }
+.dash-sidebar-sublink.active { color: var(--link); font-weight: 600; }
 .dash-main { flex: 1; min-width: 0; }
 
 @media (max-width: 720px) {
   .dash-layout { flex-direction: column; }
   .dash-sidebar { flex: none; width: 100%; position: static; }
-  .dash-sidebar ul { display: flex; flex-wrap: wrap; gap: 0.25rem; }
-  .dash-sidebar li { margin-bottom: 0; }
+  .dash-sidebar > ul { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+  .dash-sidebar > ul > li { margin-bottom: 0; }
   .dash-sidebar-link { white-space: nowrap; }
+  .dash-sidebar-sublist { display: inline-flex; flex-wrap: wrap; gap: 0.15rem; padding-left: 0.4rem; }
+  .dash-sidebar-sublink { white-space: nowrap; font-size: 0.7rem; }
 }
 
 h2 { margin-bottom: 1rem; font-size: 1.3rem; }
@@ -468,6 +486,12 @@ label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.2
   margin: 1.5rem 0 0.5rem;
   padding-bottom: 0.25rem;
   border-bottom: 2px solid var(--border);
+}
+.group-subtitle {
+  font-size: 0.8rem;
+  color: var(--link);
+  margin: -0.25rem 0 0.75rem;
+  font-style: italic;
 }
 
 .page-header {
