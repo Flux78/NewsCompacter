@@ -65,6 +65,8 @@ flowchart TB
 | PUT | `/api/sources/{id}` | Quelle aktualisieren |
 | DELETE | `/api/sources/{id}` | Quelle löschen |
 | GET | `/api/sources/suggest` | LLM-basierte Quellen-Vorschläge |
+| GET | `/api/fetch/enrich-status` | Status von Fetch/Enrich (Polling) |
+| GET | `/api/sources/suggest` | LLM-Quellen-Vorschläge |
 | GET | `/api/settings/language` | Aktuelle Sprache abrufen |
 | PUT | `/api/settings/language` | Sprache setzen (DEU/ENG/ORIG) |
 
@@ -78,12 +80,15 @@ flowchart TB
 | `news_tags` | Vom LLM generierte Tags (news_id, tag_name) |
 | `tag_preferences` | Benutzer-Feedback zu Tags (relevant/irrelevant) |
 | `news_sources` | Konfigurierte RSS/News-Quellen (Name, URL, Typ, enabled) |
-| `llm_config` | LLM-Provider-Konfiguration |
+| `llm_config` | LLM-Provider-Konfiguration (API-Key verschlüsselt) |
 | `settings` | Fetch-Intervall, Sprache (DEU/ENG/ORIG) |
+| `schema_version` | Migrations-Versionstracking |
 
 ## LLM-Integration
 
 - Standard-Provider: **OpenRouter** (kostenloses Model: `meta-llama/llama-3.2-3b-instruct`)
+- **API-Key-Verschlüsselung**: Keys werden mit Fernet (AES-128) verschlüsselt in der DB gespeichert. Automatische Migration existierender Plaintext-Keys.
+- **Prompt-Injection-Schutz**: Content/Titel auf Länge begrenzt (max 3000/300 Zeichen)
 - Nutzung für:
   - **Tag-Generierung** – 3–5 Schlagwörter pro Nachricht
   - **Zusammenfassung** – 1–2 Sätze Summary pro Nachricht
@@ -143,11 +148,11 @@ Im Entwicklungsmodus zusätzlich `npm run dev` im `frontend/`-Verzeichnis starte
 
 ## Verwendete Technologien
 
-- **Backend**: [FastAPI](https://fastapi.tiangolo.com) (Python), [SQLAlchemy](https://www.sqlalchemy.org), [APScheduler](https://apscheduler.readthedocs.io), [httpx](https://www.python-httpx.org), [feedparser](https://feedparser.readthedocs.io)
+- **Backend**: [FastAPI](https://fastapi.tiangolo.com) (Python), [SQLAlchemy](https://www.sqlalchemy.org), [APScheduler](https://apscheduler.readthedocs.io), [httpx](https://www.python-httpx.org), [feedparser](https://feedparser.readthedocs.io), [cryptography](https://cryptography.io) (API-Key-Verschlüsselung)
 - **Frontend**: [React](https://react.dev) 18, [TypeScript](https://www.typescriptlang.org), [Vite](https://vite.dev), [React Router](https://reactrouter.com)
-- **Datenbank**: [SQLite](https://www.sqlite.org) (via [aiosqlite](https://github.com/omnilib/aiosqlite))
+- **Datenbank**: [SQLite](https://www.sqlite.org) (via [aiosqlite](https://github.com/omnilib/aiosqlite)), schema_version-Migrationssystem
 - **LLM**: [OpenRouter](https://openrouter.ai) (kompatibel mit OpenAI-API-Format)
-- **News-Quellen**: RSS-Feeds (konfigurierbar)
+- **News-Quellen**: RSS-Feeds + Google News (konfigurierbar)
 
 ## Einstellungen
 

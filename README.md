@@ -3,14 +3,17 @@
 Lokale Web-App zur intelligenten Bündelung von Nachrichten aus RSS-Quellen mit LLM-gestützter Analyse.
 
 **Features:**
-- Sammelt Nachrichten aus beliebigen RSS-Feeds (konfigurierbar)
+- Sammelt Nachrichten aus beliebigen RSS-Feeds + Google News (konfigurierbar)
 - LLM-generierte **Zusammenfassungen** (1–2 Sätze) und **Tags** (3–5 Schlagwörter)
 - Erkennt Duplikate – gleiche Meldung aus verschiedenen Quellen wird **einmal** dargestellt mit allen Quellen + separaten Links
 - Semantische LLM-Deduplizierung fasst auch Artikel mit unterschiedlichen Titeln zusammen
 - **Thematische Gruppierung** im Dashboard (auch als Themengruppen), **Tags** per Klick als relevant/irrelevant bewertbar
 - Nachrichten als **Favoriten** speichern, ungespeicherte ältere Einträge automatisch aufgeräumt
 - **Dark Mode**, **Sprachsteuerung** (DEU/ENG/ORIG), automatischer Fetch per Intervall
+- **Pagination** ("Mehr laden", 50er Blöcke), **J/K-Tastaturnavigation** zwischen Kapiteln
 - **Keyword-Filter** mit Hervorhebung: Suchbegriffe eingeben, passende Nachrichten werden gefiltert und Treffer farbig markiert
+- **API-Key verschlüsselt** (Fernet), opt-in **Auth-Middleware** (`NC_API_KEY`), Rate Limiting
+- **ErrorBoundary**, Lösch-Bestätigungsdialoge, Toast-Benachrichtigungen, 18 Unit-Tests
 - Vollständig lokal – Daten bleiben in SQLite auf deinem Rechner
 
 ---
