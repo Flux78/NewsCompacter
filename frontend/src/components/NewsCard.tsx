@@ -21,6 +21,7 @@ function highlightText(text: string, keywords: string[]): ReactNode {
 
 interface NewsCardProps {
   item: NewsItem
+  isNew?: boolean
   keywordFilter?: string
   onTagImportant?: (tag: string) => void
   onTagUnimportant?: (tag: string) => void
@@ -29,7 +30,7 @@ interface NewsCardProps {
   onSaveToggle?: (id: number, saved: boolean) => void
 }
 
-export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUnimportant, importantTags, unimportantTags, onSaveToggle }: NewsCardProps) {
+export default function NewsCard({ item, isNew, keywordFilter, onTagImportant, onTagUnimportant, importantTags, unimportantTags, onSaveToggle }: NewsCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [showImg, setShowImg] = useState(false)
   const [saved, setSaved] = useState(item.isSaved)
@@ -53,7 +54,7 @@ export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUni
   }, [item.sourceUrl, item.source])
 
   return (
-    <div className={`card${saved ? ' card-saved' : ''}`}>
+    <div className={`card${saved ? ' card-saved' : ''}${isNew && !saved ? ' card-new' : ''}`}>
       <div className="news-header">
         <h3
           className="news-title-img"
@@ -119,7 +120,7 @@ export default function NewsCard({ item, keywordFilter, onTagImportant, onTagUni
           )
         })}
 
-        <span className="news-time">
+        <span className={`news-time${isNew ? ' news-time-new' : ''}`}>
           {new Date(item.fetchedAt).toLocaleDateString(LOCALE, {
             day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
           })}

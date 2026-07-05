@@ -23,6 +23,7 @@ export default function Dashboard(): JSX.Element {
   const [llmConfig, setLlmConfig] = useState<LlmConfig | null>(null)
   const [showLlmWarning, setShowLlmWarning] = useState(true)
   const [visibleLimit, setVisibleLimit] = useState(50)
+  const [lastSeen, setLastSeen] = useState<number>(0)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const ageFilter = searchParams.get('age')
@@ -75,6 +76,14 @@ export default function Dashboard(): JSX.Element {
     setLlmConfig(llm)
     setTopicGroups(tg)
   })
+
+  useEffect(() => {
+    const stored = localStorage.getItem('news_last_seen')
+    setLastSeen(stored ? Number(stored) : 0)
+    return () => {
+      localStorage.setItem('news_last_seen', String(Date.now()))
+    }
+  }, [])
 
   useEffect(() => {
     const handler = () => reload()
@@ -238,6 +247,7 @@ export default function Dashboard(): JSX.Element {
                     <NewsCard
                       key={`${group}-${item.id}`}
                       item={item}
+                      isNew={new Date(item.fetchedAt).getTime() > lastSeen}
                       keywordFilter={keywordFilter}
                       onTagImportant={handleTagImportant}
                       onTagUnimportant={handleTagUnimportant}
