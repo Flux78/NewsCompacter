@@ -107,8 +107,11 @@ export default function Dashboard(): JSX.Element {
       if (res.enriched > 0) parts.push(`${res.enriched} getaggt`)
       setFetchMsg(parts.length > 0 ? parts.join(', ') + '.' : 'Keine neuen Nachrichten')
       await reload()
-    } catch {
-      setFetchMsg('Fehler beim Abruf')
+    } catch (e: unknown) {
+      const msg = e instanceof Error && e.message && !e.message.startsWith('<!DOCTYPE')
+        ? e.message
+        : 'Netzwerk- oder Serverfehler – ist das Backend erreichbar?'
+      setFetchMsg(`Fehler beim Abruf: ${msg}`)
     }
     setFetching(false)
   }
@@ -120,8 +123,11 @@ export default function Dashboard(): JSX.Element {
       const res = await api.fetch.enrich()
       setFetchMsg(res.enriched > 0 ? `${res.enriched} Nachrichten getaggt` : 'Keine Nachrichten zu taggen')
       await reload()
-    } catch {
-      setFetchMsg('Fehler bei der Tag-Analyse')
+    } catch (e: unknown) {
+      const msg = e instanceof Error && e.message && !e.message.startsWith('<!DOCTYPE')
+        ? e.message
+        : 'Netzwerk- oder Serverfehler – ist das Backend erreichbar?'
+      setFetchMsg(`Fehler bei der Tag-Analyse: ${msg}`)
     }
     setEnriching(false)
   }

@@ -34,7 +34,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'DeepSeek',
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com/v1',
-    defaultModel: 'deepseek-v4-flash',
+    defaultModel: 'deepseek-chat',
     models: DEEPSEEK_MODELS,
   },
   {
@@ -108,8 +108,10 @@ export default function LlmConfig(): JSX.Element {
       return
     }
 
+    const currentKey = keyDirty ? config.apiKey : undefined
+
     setModelsLoading(true)
-    api.llmConfig.models(preset.baseUrl)
+    api.llmConfig.models(preset.baseUrl, currentKey)
       .then((res) => {
         const fetched: ModelOption[] = (res.models || [])
           .filter((m) => m.id)
@@ -120,7 +122,7 @@ export default function LlmConfig(): JSX.Element {
         setDynamicModels(null)
       })
       .finally(() => setModelsLoading(false))
-  }, [presetId])
+  }, [presetId, keyDirty, config.apiKey])
 
   const activeModels = useMemo(() => {
     if (dynamicModels && dynamicModels.length > 0) return dynamicModels
