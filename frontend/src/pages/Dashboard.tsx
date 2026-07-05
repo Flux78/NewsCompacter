@@ -80,9 +80,11 @@ export default function Dashboard(): JSX.Element {
   useEffect(() => {
     const stored = localStorage.getItem('news_last_seen')
     setLastSeen(stored ? Number(stored) : 0)
-    return () => {
+    const saveLastSeen = () => {
       localStorage.setItem('news_last_seen', String(Date.now()))
     }
+    window.addEventListener('beforeunload', saveLastSeen)
+    return () => window.removeEventListener('beforeunload', saveLastSeen)
   }, [])
 
   useEffect(() => {
