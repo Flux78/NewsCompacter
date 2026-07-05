@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { api, type LlmConfig as LlmConfigType } from '../services/api'
 import ModelSelect, { OPENROUTER_MODELS, DEEPSEEK_MODELS, ALL_MODELS, type ModelOption } from '../components/ModelSelect'
 import { useLoadOnMount } from '../useLoadOnMount'
@@ -34,7 +34,7 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     label: 'DeepSeek',
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com/v1',
-    defaultModel: 'deepseek-chat',
+    defaultModel: 'deepseek-v4-flash',
     models: DEEPSEEK_MODELS,
   },
   {
@@ -97,6 +97,36 @@ export default function LlmConfig(): JSX.Element {
       }))
     }
   }, [])
+
+  const [dynamicModels, setDynamicModels] = useState<ModelOption[] | null>(null)
+  const [modelsLoading, setModelsLoading] = useState(false)
+
+  useEffect(() => {
+    const preset = PROVIDER_PRESETS.find((p) => p.id === presetId)
+    if (!preset || !preset.baseUrl) {
+      setDynamicModels(null)
+      return
+    }
+
+    setModelsLoading(true)
+    api.llmConfig.models(preset.baseUrl)
+      .then((res) => {
+        const fetched: ModelOption[] = (res.models || [])
+          .filter((m) => m.id)
+          .map((m) => ({ id: m.id, label: m.id, free: false }))
+        setDynamicModels(fetched.length > 0 ? fetched : null)
+      })
+      .catch(() => {
+        setDynamicModels(null)
+      })
+      .finally(() => setModelsLoading(false))
+  }, [presetId])
+
+  const activeModels = useMemo(() => {
+    if (dynamicModels && dynamicModels.length > 0) return dynamicModels
+    if (activePreset?.models && activePreset.models.length > 0) return activePreset.models
+    return undefined
+  }, [dynamicModels, activePreset])
 
   const handleSave = async () => {
     setSaving(true)
@@ -183,11 +213,11 @@ export default function LlmConfig(): JSX.Element {
           )}
         </div>
 
-        <label>Model</label>
+        <label>Model{modelsLoading ? ' (lade…)' : ''}</label>
         <ModelSelect
           value={config.model}
           onChange={(model) => setConfig({ ...config, model })}
-          models={activePreset?.models}
+          models={activeModels}
         />
 
         <label>Base URL</label>

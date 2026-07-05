@@ -1,5 +1,7 @@
 import logging
-from fastapi import APIRouter, Depends
+from urllib.parse import urljoin
+import httpx
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, computed_field
@@ -7,6 +9,7 @@ from pydantic import BaseModel, computed_field
 from database import get_db
 from models import LlmConfig
 from services.crypto import encrypt, decrypt, is_encrypted
+from services.utils import get_http_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/llm-config", tags=["llm"])
@@ -93,3 +96,32 @@ async def _migrate_key_if_needed(db: AsyncSession, config: LlmConfig) -> None:
         config.api_key = encrypt(config.api_key)
         await db.commit()
         await db.refresh(config)
+
+
+@router.get("/models")
+async def list_models(
+    base_url: str = Query(..., description="Provider base URL"),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(LlmConfig))
+    config = result.scalar_one_or_none()
+    if not config or not config.api_key:
+        return {"models": []}
+
+    try:
+        api_key = decrypt(config.api_key)
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        models_url = urljoin(base_url.rstrip("/") + "/", "models")
+        client = get_http_client()
+        resp = await client.get(models_url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("data", []) if isinstance(data, dict) else []
+        models = [{"id": m["id"]} for m in items if isinstance(m, dict) and m.get("id")]
+        return {"models": models}
+    except Exception as e:
+        logger.warning("Failed to fetch models from %s: %s", base_url, e)
+        return {"models": []}

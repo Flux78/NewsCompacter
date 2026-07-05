@@ -38,8 +38,8 @@ export const OPENROUTER_MODELS: ModelOption[] = [
 })
 
 export const DEEPSEEK_MODELS: ModelOption[] = [
-  { id: 'deepseek-chat', label: 'DeepSeek Chat (V3)', free: false },
-  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner (R1)', free: false },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', free: false },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', free: false },
 ]
 
 const ALL_MODELS: ModelOption[] = [...new Map(
