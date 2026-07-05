@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 LLM_TEMPERATURE = 0.3
 LLM_MAX_TOKENS = 1024
 LLM_TIMEOUT = 60
-MAX_TAGS_PER_ARTICLE = 5
+MAX_TAGS_PER_ARTICLE = 8
 DEDUP_LIMIT = 100
 MAX_PROMPT_CONTENT = 3000
 MAX_TITLE_LENGTH = 300
@@ -88,11 +88,18 @@ async def generate_tags(db: AsyncSession, news: News, lang: str = "ORIG") -> Lis
     title = _sanitize(news.title)[:MAX_TITLE_LENGTH]
     content = _sanitize(news.content)
     prompt = (
-        f"Extract 3-5 keywords (tags) from the following news article. "
+        f"Analyze the following news article and extract fine-grained, specific tags. "
+        f"Include: named entities (people, organizations, locations), specific topics or subtopics, "
+        f"key events, and relevant categories. Provide 5-8 tags. "
         f"Respond ONLY with a JSON array, e.g. [\"Tag1\", \"Tag2\", \"Tag3\"].\n\n"
         f"Title: {title}\nContent: {content}"
     )
-    result = await _call_llm(db, "You extract keywords (tags) from news articles.", prompt, lang)
+    result = await _call_llm(
+        db,
+        "You extract detailed, fine-grained tags (entities, topics, categories, events) from news articles.",
+        prompt,
+        lang,
+    )
     if not result:
         return []
 
@@ -113,6 +120,29 @@ async def generate_summary(db: AsyncSession, news: News, lang: str = "ORIG") -> 
         f"Title: {title}\nContent: {content}"
     )
     return await _call_llm(db, "You summarize news articles concisely.", prompt, lang)
+
+
+async def _generate_consolidated_summary(
+    db: AsyncSession, primary: News, duplicates: list[News], lang: str = "ORIG"
+) -> str | None:
+    titles_text = "\n".join(
+        f"- {n.title} (source: {n.source})"
+        for n in [primary] + duplicates
+    )
+    content = _sanitize(primary.content)
+    prompt = (
+        f"The following {len(duplicates) + 1} news articles from different sources cover the same topic. "
+        f"Generate a consolidated, comprehensive summary in 2-3 sentences that captures the key "
+        f"information from all sources.\n\n"
+        f"Articles:\n{titles_text}\n\n"
+        f"Main article content:\n{content}"
+    )
+    return await _call_llm(
+        db,
+        "You combine multiple news articles about the same topic into one concise, comprehensive summary.",
+        prompt,
+        lang,
+    )
 
 
 async def deduplicate_articles(db: AsyncSession, news_list: List[News]) -> List[List[News]]:
@@ -203,12 +233,14 @@ async def enrich_news_with_llm(db: AsyncSession, news_list: List[News]) -> int:
 
     groups = await deduplicate_articles(db, news_list + existing)
     deleted_ids: set[int] = set()
+    merge_groups: list[tuple[News, list[News]]] = []
     for group in groups:
         if len(group) < 2:
             continue
         primary = group[0]
         if primary.id in deleted_ids:
             continue
+        dups: list[News] = []
         for dup in group[1:]:
             if dup.id in deleted_ids:
                 continue
@@ -218,12 +250,26 @@ async def enrich_news_with_llm(db: AsyncSession, news_list: List[News]) -> int:
                 primary.content = dup.content
             if not primary.image_url and dup.image_url:
                 primary.image_url = dup.image_url
+            dups.append(dup)
             deleted_ids.add(dup.id)
             await db.delete(dup)
+        if dups:
+            merge_groups.append((primary, dups))
 
     if deleted_ids:
         logger.info("deduplicate_articles: merged %d duplicate(s)", len(deleted_ids))
         await db.commit()
+
+    if merge_groups:
+        summary_count = 0
+        for primary, dups in merge_groups:
+            consolidated = await _generate_consolidated_summary(db, primary, dups, lang)
+            if consolidated:
+                primary.summary = consolidated
+                summary_count += 1
+        if summary_count:
+            logger.info("deduplicate_articles: regenerated %d consolidated summary/summaries", summary_count)
+            await db.commit()
 
     return enriched
 
