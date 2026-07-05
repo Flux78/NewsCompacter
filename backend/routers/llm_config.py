@@ -101,17 +101,22 @@ async def _migrate_key_if_needed(db: AsyncSession, config: LlmConfig) -> None:
 @router.get("/models")
 async def list_models(
     base_url: str = Query(..., description="Provider base URL"),
+    api_key: str = Query("", description="Optional: use this API key instead of the stored one"),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(LlmConfig))
-    config = result.scalar_one_or_none()
-    if not config or not config.api_key:
-        return {"models": []}
+    raw_key = api_key.strip() if api_key else ""
+    if raw_key:
+        resolved_key = raw_key
+    else:
+        result = await db.execute(select(LlmConfig))
+        config = result.scalar_one_or_none()
+        if not config or not config.api_key:
+            return {"models": []}
+        resolved_key = decrypt(config.api_key)
 
     try:
-        api_key = decrypt(config.api_key)
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {resolved_key}",
             "Content-Type": "application/json",
         }
         models_url = urljoin(base_url.rstrip("/") + "/", "models")

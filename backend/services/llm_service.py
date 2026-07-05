@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from models import LlmConfig, News, NewsTag
-from services.utils import merge_sources, merge_urls, get_settings
+from services.utils import merge_sources, merge_urls, get_settings, get_http_client
 from services.crypto import decrypt
 
 logger = logging.getLogger(__name__)

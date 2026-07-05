@@ -130,8 +130,11 @@ export const api = {
       const raw = _transformKeys<Record<string, unknown>>(cfg, _toSnake)
       return requestCamel<LlmConfig>('/llm-config', { method: 'PUT', body: JSON.stringify(raw) })
     },
-    models: (baseUrl: string) =>
-      requestCamel<{ models: { id: string }[] }>(`/llm-config/models?base_url=${encodeURIComponent(baseUrl)}`),
+    models: (baseUrl: string, apiKey?: string) => {
+      let url = `/llm-config/models?base_url=${encodeURIComponent(baseUrl)}`
+      if (apiKey) url += `&api_key=${encodeURIComponent(apiKey)}`
+      return requestCamel<{ models: { id: string }[] }>(url)
+    },
   },
 
   sources: {
