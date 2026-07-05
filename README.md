@@ -4,9 +4,9 @@ Lokale Web-App zur intelligenten Bündelung von Nachrichten aus RSS-Quellen mit 
 
 **Features:**
 - Sammelt Nachrichten aus beliebigen RSS-Feeds + Google News (konfigurierbar)
-- LLM-generierte **Zusammenfassungen** (1–2 Sätze) und **Tags** (3–5 Schlagwörter)
+- LLM-generierte **Zusammenfassungen** (1–2 Sätze) und **Tags** (5–8 Schlagwörter)
 - Erkennt Duplikate – gleiche Meldung aus verschiedenen Quellen wird **einmal** dargestellt mit allen Quellen + separaten Links
-- Semantische LLM-Deduplizierung fasst auch Artikel mit unterschiedlichen Titeln zusammen
+- Semantische LLM-Deduplizierung fasst auch Artikel mit unterschiedlichen Titeln zusammen, inkl. konsolidierter Summary
 - **Thematische Gruppierung** im Dashboard (auch als Themengruppen), **Tags** per Klick als relevant/irrelevant bewertbar
 - Nachrichten als **Favoriten** speichern, ungespeicherte ältere Einträge automatisch aufgeräumt
 - **Dark Mode**, **Sprachsteuerung** (DEU/ENG/ORIG), automatischer Fetch per Intervall
@@ -58,9 +58,9 @@ Ausführliche Schritt-für-Schritt-Anleitung in [`raspberry-pi-setup.md`](raspbe
 └─────────────┘     └───────┬───────────┘     └──────────────┘
                             │
                     ┌───────┴───────────┐
-                    │  NewsFetcher (RSS)│──▶ RSS-Feeds
-                    │  LLM-Service     │──▶ OpenRouter
-                    │  Scheduler       │
+                     │  NewsFetcher (RSS)│──▶ RSS-Feeds
+                     │  LLM-Service     │──▶ OpenRouter / DeepSeek
+                     │  Scheduler       │
                     └──────────────────┘
 ```
 
@@ -80,6 +80,9 @@ Ausführliche Schritt-für-Schritt-Anleitung in [`raspberry-pi-setup.md`](raspbe
 | `PATCH` | `/api/news/{id}` | Speicherstatus ändern |
 | `POST` | `/api/fetch/now` | Manueller Fetch + Anreicherung |
 | `POST` | `/api/fetch/enrich` | Nur LLM-Anreicherung |
+| `GET` | `/api/llm-config` | LLM-Konfiguration abrufen |
+| `PUT` | `/api/llm-config` | LLM-Konfiguration speichern |
+| `GET` | `/api/llm-config/models` | Verfügbare Modelle vom Provider abrufen |
 | `GET` | `/api/sources` | RSS-Quellen |
 | `PUT` | `/api/tag-prefs` | Tag bewerten |
 | `GET` | `/api/settings/language` | Sprache abrufen |
@@ -88,7 +91,7 @@ Vollständige Liste in [`documentation.md`](documentation.md).
 
 ## Konfiguration
 
-1. **LLM-API-Key** eintragen unter `/llm-config` (OpenRouter oder kompatibler Anbieter)
+1. **LLM-API-Key** eintragen unter `/llm-config` (Provider-Presets: OpenRouter, DeepSeek oder benutzerdefinierter OpenAI-kompatibler Anbieter). Modelle werden live vom Provider gefetcht.
 2. **Themengebiete** anlegen unter `/topics` → bestimmen die Kapitel im Dashboard. Mehrere Themen können zu **Themengruppen** zusammengefasst werden, sodass sie gemeinsam als ein Kapitel erscheinen
 3. **RSS-Quellen** verwalten unter `/sources` (15 Defaults inkl. BBC, Tagesschau, Spiegel, Heise, …)
 4. **Sprache / Intervall** über Navigationselemente

@@ -20,14 +20,14 @@ flowchart TB
     subgraph Backend ["Backend (Python FastAPI)"]
         B1["REST-API<br/>(Routers)"]
         B2["NewsFetcher<br/>(RSS)"]
-        B3["LLM-Service<br/>(OpenRouter)"]
+        B3["LLM-Service<br/>(OpenRouter / DeepSeek / Custom)"]
         B4["Scheduler<br/>(APScheduler)"]
         B5["SQLite-Datenbank<br/>(SQLAlchemy)"]
     end
 
     subgraph Extern ["Externe Systeme"]
         C1["RSS-Feeds<br/>(konfigurierbar)"]
-        C2["OpenRouter API"]
+        C2["OpenRouter / DeepSeek API"]
     end
 
     Frontend -->|HTTP /api/*| B1
@@ -51,7 +51,8 @@ flowchart TB
 | GET | `/api/news` | Nachrichten (optional `?topic_id=`, `?keyword=` zum clientseitigen Filtern) |
 | PATCH | `/api/news/{id}` | Nachricht aktualisieren (z.B. `is_saved`) |
 | GET | `/api/llm-config` | LLM-Konfiguration abrufen |
-| PUT | `/api/llm-config` | LLM-Konfiguration speichern |
+| PUT | `/api/llm-config` | LLM-Konfiguration speichern (Provider, API-Key, Model, Base URL) |
+| GET | `/api/llm-config/models?base_url=...` | Verfügbare Modelle live vom Provider abrufen (optional `api_key`-Param) |
 | GET/POST/PUT/DELETE | `/api/topic-groups` | Themengruppen CRUD (Topics clusterbar) |
 | POST | `/api/fetch/now` | Manuellen Fetch auslösen |
 | POST | `/api/fetch/enrich` | Nachträgliche LLM-Anreicherung (Tags + Summary) |
@@ -86,13 +87,15 @@ flowchart TB
 
 ## LLM-Integration
 
-- Standard-Provider: **OpenRouter** (kostenloses Model: `meta-llama/llama-3.2-3b-instruct`)
+- **Provider-Presets**: OpenRouter, DeepSeek, oder benutzerdefinierter OpenAI-kompatibler Anbieter
+- **Dynamische Modell-Auswahl**: Modelle werden live vom Provider via `/models`-Endpoint gefetcht
 - **API-Key-Verschlüsselung**: Keys werden mit Fernet (AES-128) verschlüsselt in der DB gespeichert. Automatische Migration existierender Plaintext-Keys.
 - **Prompt-Injection-Schutz**: Content/Titel auf Länge begrenzt (max 3000/300 Zeichen)
 - Nutzung für:
-  - **Tag-Generierung** – 3–5 Schlagwörter pro Nachricht
+  - **Tag-Generierung** – 5–8 feingranulare Schlagwörter pro Nachricht (Entities, Topics, Events, Categories)
   - **Zusammenfassung** – 1–2 Sätze Summary pro Nachricht
   - **Deduplizierung** – Erkennung semantischer Duplikate + Merge von Quellen/URLs
+  - **Konsolidierte Summary** – Nach Dubletten-Merge wird eine neue, umfassende Summary aus allen Quellen generiert
   - **Quellen-Vorschläge** – intelligente RSS-Empfehlungen
   - **Sprachsteuerung** – Antworten in DEU/ENG/ORIG je nach Einstellung
 
@@ -103,7 +106,7 @@ flowchart TB
   - Quellen-Namen werden mit ` + ` kombiniert
   - URLs werden mit ` | ` kombiniert
   - Längster Content gewinnt, erstes Bild bleibt erhalten
-- LLM-basierte Deduplizierung: `deduplicate_articles()` gruppiert semantisch ähnliche Artikel (auch bei unterschiedlichen Titeln) und führt Quellen/URLs/Content zusammen. Wird automatisch während der LLM-Anreicherung ausgeführt.
+- LLM-basierte Deduplizierung: `deduplicate_articles()` gruppiert semantisch ähnliche Artikel (auch bei unterschiedlichen Titeln) und führt Quellen/URLs/Content zusammen. Anschließend wird eine **konsolidierte Summary** aus allen zusammengeführten Quellen generiert. Wird automatisch während der LLM-Anreicherung ausgeführt.
 
 ## Score-basierte Sortierung
 
@@ -151,12 +154,12 @@ Im Entwicklungsmodus zusätzlich `npm run dev` im `frontend/`-Verzeichnis starte
 - **Backend**: [FastAPI](https://fastapi.tiangolo.com) (Python), [SQLAlchemy](https://www.sqlalchemy.org), [APScheduler](https://apscheduler.readthedocs.io), [httpx](https://www.python-httpx.org), [feedparser](https://feedparser.readthedocs.io), [cryptography](https://cryptography.io) (API-Key-Verschlüsselung)
 - **Frontend**: [React](https://react.dev) 18, [TypeScript](https://www.typescriptlang.org), [Vite](https://vite.dev), [React Router](https://reactrouter.com)
 - **Datenbank**: [SQLite](https://www.sqlite.org) (via [aiosqlite](https://github.com/omnilib/aiosqlite)), schema_version-Migrationssystem
-- **LLM**: [OpenRouter](https://openrouter.ai) (kompatibel mit OpenAI-API-Format)
+- **LLM**: [OpenRouter](https://openrouter.ai), [DeepSeek](https://deepseek.com) und OpenAI-kompatible APIs
 - **News-Quellen**: RSS-Feeds + Google News (konfigurierbar)
 
 ## Einstellungen
 
-1. **LLM-Config**: OpenRouter API-Key eintragen (Pflichtfeld für Tags/Summaries)
+1. **LLM-Config**: Provider-Preset wählen (OpenRouter, DeepSeek, Custom), API-Key eintragen, Modell auswählen (live vom Provider gefetcht)
 2. **Themengebiete**: 3 Default-Topics werden beim ersten Start angelegt (Weltpolitik, Deutschlandpolitik, etc.)
 3. **Quellen**: RSS-Feeds verwalten (hinzufügen, aktivieren, deaktivieren, löschen)
 4. **Sprache**: DEU / ENG / ORIG über Umschalter in der Navigation
