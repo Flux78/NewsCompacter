@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { api, type LlmConfig as LlmConfigType } from '../services/api'
-import ModelSelect from '../components/ModelSelect'
+import ModelSelect, { OPENROUTER_MODELS, DEEPSEEK_MODELS, ALL_MODELS, type ModelOption } from '../components/ModelSelect'
 import { useLoadOnMount } from '../useLoadOnMount'
 import SpinnerButton from '../components/SpinnerButton'
 import LoadingState from '../components/LoadingState'
@@ -10,6 +10,50 @@ const INTERVALS: { value: number; label: string }[] = [
   { value: 360, label: 'Alle 6 Stunden' },
   { value: 1440, label: 'Alle 24 Stunden' },
 ]
+
+interface ProviderPreset {
+  id: string
+  label: string
+  provider: string
+  baseUrl: string
+  defaultModel: string
+  models: ModelOption[]
+}
+
+const PROVIDER_PRESETS: ProviderPreset[] = [
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    defaultModel: 'meta-llama/llama-3.2-3b-instruct',
+    models: OPENROUTER_MODELS,
+  },
+  {
+    id: 'deepseek',
+    label: 'DeepSeek',
+    provider: 'deepseek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    defaultModel: 'deepseek-chat',
+    models: DEEPSEEK_MODELS,
+  },
+  {
+    id: 'custom',
+    label: 'Benutzerdefiniert',
+    provider: '',
+    baseUrl: '',
+    defaultModel: '',
+    models: ALL_MODELS,
+  },
+]
+
+function detectPreset(provider: string, baseUrl: string): string {
+  for (const p of PROVIDER_PRESETS) {
+    if (p.id === 'custom') continue
+    if (p.provider === provider && p.baseUrl === baseUrl) return p.id
+  }
+  return 'custom'
+}
 
 const DEFAULT_CONFIG: LlmConfigType = {
   provider: 'openrouter',
@@ -21,6 +65,7 @@ const DEFAULT_CONFIG: LlmConfigType = {
 
 export default function LlmConfig(): JSX.Element {
   const [config, setConfig] = useState<LlmConfigType>(DEFAULT_CONFIG)
+  const [presetId, setPresetId] = useState('openrouter')
   const [keyDirty, setKeyDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -33,9 +78,25 @@ export default function LlmConfig(): JSX.Element {
     ])
     if (cfg) {
       setConfig({ ...cfg, apiKey: '' })
+      setPresetId(detectPreset(cfg.provider, cfg.baseUrl))
     }
     setIntervalVal(intv.minutes)
   })
+
+  const activePreset = PROVIDER_PRESETS.find((p) => p.id === presetId)
+
+  const handlePresetChange = useCallback((newPresetId: string) => {
+    setPresetId(newPresetId)
+    const preset = PROVIDER_PRESETS.find((p) => p.id === newPresetId)
+    if (preset) {
+      setConfig((c) => ({
+        ...c,
+        provider: preset.provider,
+        baseUrl: preset.baseUrl,
+        model: preset.defaultModel || c.model,
+      }))
+    }
+  }, [])
 
   const handleSave = async () => {
     setSaving(true)
@@ -87,8 +148,21 @@ export default function LlmConfig(): JSX.Element {
       <h2>LLM-Konfiguration</h2>
 
       <div className="card">
+        <label>Provider-Preset</label>
+        <select
+          value={presetId}
+          onChange={(e) => handlePresetChange(e.target.value)}
+        >
+          {PROVIDER_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </select>
+
         <label>Provider</label>
-        <input value={config.provider} onChange={(e) => setConfig({ ...config, provider: e.target.value })} />
+        <input value={config.provider} onChange={(e) => {
+          setConfig({ ...config, provider: e.target.value })
+          setPresetId(detectPreset(e.target.value, config.baseUrl))
+        }} />
 
         <label>API-Key</label>
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
@@ -113,12 +187,16 @@ export default function LlmConfig(): JSX.Element {
         <ModelSelect
           value={config.model}
           onChange={(model) => setConfig({ ...config, model })}
+          models={activePreset?.models}
         />
 
         <label>Base URL</label>
         <input
           value={config.baseUrl}
-          onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
+          onChange={(e) => {
+            setConfig({ ...config, baseUrl: e.target.value })
+            setPresetId(detectPreset(config.provider, e.target.value))
+          }}
           placeholder="https://openrouter.ai/api/v1"
         />
 

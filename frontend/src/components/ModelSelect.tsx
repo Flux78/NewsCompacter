@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 
-interface ModelOption {
+export interface ModelOption {
   id: string
   label: string
   free: boolean
 }
 
-const MODELS: ModelOption[] = [
+export const OPENROUTER_MODELS: ModelOption[] = [
   { id: 'meta-llama/llama-3.2-3b-instruct', label: 'Llama 3.2 3B', free: true },
   { id: 'meta-llama/llama-3.2-1b-instruct', label: 'Llama 3.2 1B', free: true },
   { id: 'google/gemma-2-2b-it', label: 'Gemma 2 2B', free: true },
@@ -37,12 +37,27 @@ const MODELS: ModelOption[] = [
   return a.label.localeCompare(b.label)
 })
 
+export const DEEPSEEK_MODELS: ModelOption[] = [
+  { id: 'deepseek-chat', label: 'DeepSeek Chat (V3)', free: false },
+  { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner (R1)', free: false },
+]
+
+const ALL_MODELS: ModelOption[] = [...new Map(
+  [...OPENROUTER_MODELS, ...DEEPSEEK_MODELS].map((m) => [m.id, m])
+).values()].sort((a, b) => {
+  if (a.free !== b.free) return a.free ? -1 : 1
+  return a.label.localeCompare(b.label)
+})
+
+export { ALL_MODELS }
+
 interface ModelSelectProps {
   value: string
   onChange: (value: string) => void
+  models?: ModelOption[]
 }
 
-export default function ModelSelect({ value, onChange }: ModelSelectProps) {
+export default function ModelSelect({ value, onChange, models }: ModelSelectProps) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState(value)
   const [highlight, setHighlight] = useState(0)
@@ -51,9 +66,10 @@ export default function ModelSelect({ value, onChange }: ModelSelectProps) {
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const modelList = models ?? ALL_MODELS
   const showAll = open && !dirty
   const filter = showAll ? '' : input.toLowerCase()
-  const filtered = MODELS.filter(
+  const filtered = modelList.filter(
     (m) => m.id.toLowerCase().includes(filter) || m.label.toLowerCase().includes(filter),
   )
 
