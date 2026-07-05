@@ -49,10 +49,11 @@
 - Bewertete Tags zeigen farbige Buttons
 
 ### 2.3 LLM-Konfiguration (`/llm-config`)
-- Provider (frei eingebbar, Default: openrouter)
+- **Provider-Presets**: OpenRouter, DeepSeek oder benutzerdefinierter OpenAI-kompatibler Anbieter
+- **Dynamische Modell-Auswahl**: Modelle werden live vom Provider via `/models`-Endpoint gefetcht (DropDown)
 - API-Key (Passwort-Feld, verschlüsselt gespeichert, "Key löschen"-Button)
-- Model: Combobox mit Autocomplete, freie Modelle oben mit "Free"-Badge
-- Base URL (Default: https://openrouter.ai/api/v1)
+- Model: Combobox mit Autocomplete und Live-Abruf vom Provider
+- Base URL (vom Preset vorbefüllt, überschreibbar)
 - Zyklischer Abruf: Intervall (stündlich / 6h / 24h / aus)
 
 ### 2.4 Quellen (`/sources`)
@@ -85,11 +86,12 @@
 
 ## 4. LLM-Integration
 
-- Standard-Provider: **OpenRouter** (kostenlos: `meta-llama/llama-3.2-3b-instruct`)
+- Standard-Provider: **OpenRouter** (kostenlos: `meta-llama/llama-3.2-3b-instruct`). Alternativ: **DeepSeek** (`deepseek-chat` / `deepseek-reasoner`) und benutzerdefinierte OpenAI-kompatible APIs
 - Verwendung für:
-  - **Tag-Generierung**: 3–5 Schlagwörter pro Nachricht
+  - **Tag-Generierung**: 5–8 feingranulare Schlagwörter (Entities, Topics, Events, Categories)
   - **Zusammenfassung**: 1–2 Sätze Summary
   - **Deduplizierung**: semantische Erkennung + Merge von Duplikaten bei unterschiedlichen Titeln
+  - **Konsolidierte Summary**: nach Dubletten-Merge wird neue, umfassende Summary aus allen Quellen generiert
   - **Quellen-Vorschläge**: intelligente RSS-Empfehlungen
   - **Sprachsteuerung**: LLM antwortet in Deutsch/English/Originalsprache je nach Einstellung
 
@@ -130,6 +132,7 @@ oder `http://localhost:5173` im Dev-Modus (mit `npm run dev`).
 | GET | `/api/news` | Nachrichten (optional `?topic_id=`) |
 | PATCH | `/api/news/{id}` | Nachricht aktualisieren (z.B. `is_saved`) |
 | GET/PUT | `/api/llm-config` | LLM-Konfiguration |
+| GET | `/api/llm-config/models?base_url=...` | Modelle live vom Provider abrufen |
 | POST | `/api/fetch/now` | Manueller Fetch + Anreicherung |
 | POST | `/api/fetch/enrich` | Nur LLM-Anreicherung (Tags + Summary) |
 | GET | `/api/fetch/enrich-status` | Status von Fetch/Enrich (für Polling) |
