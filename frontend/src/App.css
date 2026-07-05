@@ -364,6 +364,19 @@ label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.2
   border-left: 3px solid var(--save-color);
 }
 
+.card-new {
+  border-left: 3px solid var(--accent);
+}
+
+.card-new.card-saved {
+  border-left: 3px solid var(--save-color);
+}
+
+.news-time-new {
+  color: var(--accent);
+  font-weight: 500;
+}
+
 .btn-save {
   background: none;
   border: none;
