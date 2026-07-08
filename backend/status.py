@@ -1,6 +1,7 @@
 import asyncio
 
 _lock = asyncio.Lock()
+enrich_lock = asyncio.Lock()
 enriching: bool = False
 fetching: bool = False
 

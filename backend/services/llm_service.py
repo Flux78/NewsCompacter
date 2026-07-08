@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import List
@@ -9,13 +10,14 @@ from sqlalchemy.orm import selectinload
 from models import LlmConfig, News, NewsTag
 from services.utils import merge_sources, merge_urls, get_settings, get_http_client
 from services.crypto import decrypt
+import status
 
 logger = logging.getLogger(__name__)
 
 LLM_TEMPERATURE = 0.3
 LLM_MAX_TOKENS = 1024
 LLM_TIMEOUT = 60
-MAX_TAGS_PER_ARTICLE = 8
+MAX_TAGS_PER_ARTICLE = 6
 DEDUP_LIMIT = 100
 MAX_PROMPT_CONTENT = 3000
 MAX_TITLE_LENGTH = 300
@@ -66,16 +68,24 @@ async def _call_llm(db: AsyncSession, system_prompt: str = "", user_prompt: str 
         "max_tokens": LLM_MAX_TOKENS,
     }
 
-    try:
-        client = get_http_client()
-        url = f"{config.base_url}/chat/completions"
-        resp = await client.post(url, timeout=LLM_TIMEOUT, headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
-    except (httpx.HTTPError, httpx.TimeoutException, KeyError, json.JSONDecodeError) as e:
-        logger.warning("LLM call failed (model=%s, base=%s): %s", config.model, config.base_url, e)
-        return None
+    for attempt in range(2):
+        try:
+            client = get_http_client()
+            url = f"{config.base_url}/chat/completions"
+            resp = await client.post(url, timeout=LLM_TIMEOUT, headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+        except httpx.TimeoutException:
+            if attempt < 1:
+                await asyncio.sleep(3)
+                continue
+            logger.warning("LLM call timed out (model=%s, base=%s)", config.model, config.base_url)
+            return None
+        except (httpx.HTTPError, KeyError, json.JSONDecodeError) as e:
+            logger.warning("LLM call failed (model=%s, base=%s): %s", config.model, config.base_url, e)
+            return None
+    return None
 
 
 def _sanitize(text: str | None) -> str:
@@ -90,7 +100,7 @@ async def generate_tags(db: AsyncSession, news: News, lang: str = "ORIG") -> Lis
     prompt = (
         f"Analyze the following news article and extract fine-grained, specific tags. "
         f"Include: named entities (people, organizations, locations), specific topics or subtopics, "
-        f"key events, and relevant categories. Provide 5-8 tags. "
+        f"key events, and relevant categories. Provide 5-6 tags. "
         f"Respond ONLY with a JSON array, e.g. [\"Tag1\", \"Tag2\", \"Tag3\"].\n\n"
         f"Title: {title}\nContent: {content}"
     )
@@ -189,89 +199,97 @@ async def enrich_news_with_llm(db: AsyncSession, news_list: List[News]) -> int:
         logger.warning("enrich_news_with_llm: api_key is empty (configure it on the LLM page)")
         return 0
 
-    lang = await _get_language(db)
-    enriched = 0
-    logger.info("enrich_news_with_llm: starting enrichment for %d items", len(news_list))
+    async with status.enrich_lock:
+        lang = await _get_language(db)
 
-    all_new_tags: list[NewsTag] = []
-    for news_item in news_list:
-        tags = await generate_tags(db, news_item, lang)
-        if tags:
-            enriched += 1
-        for tag_name in tags:
-            all_new_tags.append(NewsTag(news_id=news_item.id, tag_name=tag_name))
-
-        if not news_item.summary:
-            summary = await generate_summary(db, news_item, lang)
-            if summary:
-                news_item.summary = summary
-
-    if all_new_tags:
-        existing_result = await db.execute(
-            select(NewsTag.news_id, NewsTag.tag_name).where(
-                NewsTag.news_id.in_({t.news_id for t in all_new_tags}),
-                NewsTag.tag_name.in_({t.tag_name for t in all_new_tags}),
-            )
+        existing_tagged = await db.execute(
+            select(NewsTag.news_id).where(NewsTag.news_id.in_([n.id for n in news_list]))
         )
-        existing_set = set(existing_result.fetchall())
-        for tag in all_new_tags:
-            if (tag.news_id, tag.tag_name) not in existing_set:
-                db.add(tag)
+        tagged_ids = {row[0] for row in existing_tagged}
+        news_list = [n for n in news_list if n.id not in tagged_ids]
 
-    await db.commit()
+        enriched = 0
+        logger.info("enrich_news_with_llm: starting enrichment for %d items", len(news_list))
 
-    news_ids = {n.id for n in news_list}
-    existing_result = await db.execute(
-        select(News)
-        .options(selectinload(News.tags))
-        .where(News.id.notin_(news_ids))
-        .where(News.is_saved == False)
-        .order_by(News.fetched_at.desc())
-        .limit(DEDUP_LIMIT)
-    )
-    existing = list(existing_result.scalars().all())
+        all_new_tags: list[NewsTag] = []
+        for news_item in news_list:
+            tags = await generate_tags(db, news_item, lang)
+            if tags:
+                enriched += 1
+            for tag_name in tags:
+                all_new_tags.append(NewsTag(news_id=news_item.id, tag_name=tag_name))
 
-    groups = await deduplicate_articles(db, news_list + existing)
-    deleted_ids: set[int] = set()
-    merge_groups: list[tuple[News, list[News]]] = []
-    for group in groups:
-        if len(group) < 2:
-            continue
-        primary = group[0]
-        if primary.id in deleted_ids:
-            continue
-        dups: list[News] = []
-        for dup in group[1:]:
-            if dup.id in deleted_ids:
-                continue
-            primary.source = merge_sources(primary.source or "", dup.source or "")
-            primary.source_url = merge_urls(primary.source_url or "", dup.source_url or "")
-            if len(dup.content or "") > len(primary.content or ""):
-                primary.content = dup.content
-            if not primary.image_url and dup.image_url:
-                primary.image_url = dup.image_url
-            dups.append(dup)
-            deleted_ids.add(dup.id)
-            await db.delete(dup)
-        if dups:
-            merge_groups.append((primary, dups))
+            if not news_item.summary:
+                summary = await generate_summary(db, news_item, lang)
+                if summary:
+                    news_item.summary = summary
 
-    if deleted_ids:
-        logger.info("deduplicate_articles: merged %d duplicate(s)", len(deleted_ids))
+        if all_new_tags:
+            existing_result = await db.execute(
+                select(NewsTag.news_id, NewsTag.tag_name).where(
+                    NewsTag.news_id.in_({t.news_id for t in all_new_tags}),
+                    NewsTag.tag_name.in_({t.tag_name for t in all_new_tags}),
+                )
+            )
+            existing_set = set(existing_result.fetchall())
+            for tag in all_new_tags:
+                if (tag.news_id, tag.tag_name) not in existing_set:
+                    db.add(tag)
+
         await db.commit()
 
-    if merge_groups:
-        summary_count = 0
-        for primary, dups in merge_groups:
-            consolidated = await _generate_consolidated_summary(db, primary, dups, lang)
-            if consolidated:
-                primary.summary = consolidated
-                summary_count += 1
-        if summary_count:
-            logger.info("deduplicate_articles: regenerated %d consolidated summary/summaries", summary_count)
+        news_ids = {n.id for n in news_list}
+        existing_result = await db.execute(
+            select(News)
+            .options(selectinload(News.tags))
+            .where(News.id.notin_(news_ids))
+            .where(News.is_saved == False)
+            .order_by(News.fetched_at.desc())
+            .limit(DEDUP_LIMIT)
+        )
+        existing = list(existing_result.scalars().all())
+
+        groups = await deduplicate_articles(db, news_list + existing)
+        deleted_ids: set[int] = set()
+        merge_groups: list[tuple[News, list[News]]] = []
+        for group in groups:
+            if len(group) < 2:
+                continue
+            primary = group[0]
+            if primary.id in deleted_ids:
+                continue
+            dups: list[News] = []
+            for dup in group[1:]:
+                if dup.id in deleted_ids:
+                    continue
+                primary.source = merge_sources(primary.source or "", dup.source or "")
+                primary.source_url = merge_urls(primary.source_url or "", dup.source_url or "")
+                if len(dup.content or "") > len(primary.content or ""):
+                    primary.content = dup.content
+                if not primary.image_url and dup.image_url:
+                    primary.image_url = dup.image_url
+                dups.append(dup)
+                deleted_ids.add(dup.id)
+                await db.delete(dup)
+            if dups:
+                merge_groups.append((primary, dups))
+
+        if deleted_ids:
+            logger.info("deduplicate_articles: merged %d duplicate(s)", len(deleted_ids))
             await db.commit()
 
-    return enriched
+        if merge_groups:
+            summary_count = 0
+            for primary, dups in merge_groups:
+                consolidated = await _generate_consolidated_summary(db, primary, dups, lang)
+                if consolidated:
+                    primary.summary = consolidated
+                    summary_count += 1
+            if summary_count:
+                logger.info("deduplicate_articles: regenerated %d consolidated summary/summaries", summary_count)
+                await db.commit()
+
+        return enriched
 
 
 

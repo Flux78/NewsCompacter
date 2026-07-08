@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import datetime
 import logging
@@ -52,13 +53,18 @@ def _clean_article(article: dict) -> dict:
 
 
 async def fetch_article_text(url: str) -> str | None:
-    try:
-        client = get_http_client()
-        resp = await client.get(url, timeout=FETCH_ARTICLE_TIMEOUT, headers={"User-Agent": USER_AGENT})
-        resp.raise_for_status()
-    except (httpx.HTTPError, httpx.TimeoutException) as e:
-        logger.warning("fetch_article_text(%s) failed: %s", url, e)
-        return None
+    for attempt in range(2):
+        try:
+            client = get_http_client()
+            resp = await client.get(url, timeout=FETCH_ARTICLE_TIMEOUT, headers={"User-Agent": USER_AGENT})
+            resp.raise_for_status()
+            break
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            if attempt < 1:
+                await asyncio.sleep(2)
+                continue
+            logger.warning("fetch_article_text(%s) failed: %s", url, e)
+            return None
     html = resp.text
     for tag in (_SCRIPT_RE, _STYLE_RE, _NAV_RE):
         html = tag.sub("", html)
@@ -83,13 +89,18 @@ def _parse_published(entry) -> datetime.datetime | None:
 
 
 async def fetch_rss(url: str, source_name: str) -> List[dict]:
-    try:
-        client = get_http_client()
-        resp = await client.get(url, timeout=FETCH_TIMEOUT)
-        resp.raise_for_status()
-    except (httpx.HTTPError, httpx.TimeoutException) as e:
-        logger.warning("fetch_rss(%s) failed: %s", url, e)
-        return []
+    for attempt in range(2):
+        try:
+            client = get_http_client()
+            resp = await client.get(url, timeout=FETCH_TIMEOUT)
+            resp.raise_for_status()
+            break
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            if attempt < 1:
+                await asyncio.sleep(2)
+                continue
+            logger.warning("fetch_rss(%s) failed: %s", url, e)
+            return []
 
     feed = feedparser.parse(resp.text)
     articles = []
@@ -112,13 +123,18 @@ async def fetch_rss(url: str, source_name: str) -> List[dict]:
 
 async def fetch_google_news(query: str) -> List[dict]:
     url = GOOGLE_NEWS_RSS.format(query=query)
-    try:
-        client = get_http_client()
-        resp = await client.get(url, timeout=FETCH_TIMEOUT)
-        resp.raise_for_status()
-    except (httpx.HTTPError, httpx.TimeoutException) as e:
-        logger.warning("fetch_google_news(%s) failed: %s", query, e)
-        return []
+    for attempt in range(2):
+        try:
+            client = get_http_client()
+            resp = await client.get(url, timeout=FETCH_TIMEOUT)
+            resp.raise_for_status()
+            break
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
+            if attempt < 1:
+                await asyncio.sleep(2)
+                continue
+            logger.warning("fetch_google_news(%s) failed: %s", query, e)
+            return []
 
     feed = feedparser.parse(resp.text)
     articles = []
